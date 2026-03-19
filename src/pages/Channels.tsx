@@ -196,14 +196,17 @@ export default function Channels() {
     if (!form.name || !form.number) return;
     if (editing) {
       setChannels(prev => prev.map(c => c.id === editing.id ? { ...c, ...form } : c));
+      setShowModal(false);
     } else {
       const nc: WhatsAppChannel = {
         id: `ch${Date.now()}`, ...form, status: 'disconnected',
         leadsCount: 0, messagesCount: 0, createdAt: new Date().toISOString().split('T')[0],
       };
       setChannels(prev => [...prev, nc]);
+      setShowModal(false);
+      // Open QR Code immediately after creating a new channel
+      setQrChannel(nc);
     }
-    setShowModal(false);
   };
 
   const deleteChannel = (id: string) => setChannels(prev => prev.filter(c => c.id !== id));
