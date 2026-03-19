@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Send, Paperclip, Smile, Search, MoreHorizontal,
   Bot, CheckCheck, Clock, Tag, User, Phone, ChevronDown,
@@ -11,6 +11,8 @@ import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason } fr
 interface Props {
   selectedChannelId: string | null;
   onChannelChange: (id: string | null) => void;
+  initialContactName?: string | null;
+  onConversationOpened?: () => void;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -181,9 +183,19 @@ function MessageBubble({
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function Chat({ selectedChannelId, onChannelChange }: Props) {
+export default function Chat({ selectedChannelId, onChannelChange, initialContactName, onConversationOpened }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConvs);
   const [selected, setSelected] = useState<Conversation>(initialConvs[0]);
+
+  // Auto-select conversation when coming from Pipeline
+  useEffect(() => {
+    if (!initialContactName) return;
+    const match = conversations.find(c =>
+      c.contact.name.toLowerCase().includes(initialContactName.toLowerCase())
+    );
+    if (match) setSelected(match);
+    onConversationOpened?.();
+  }, [initialContactName]); // eslint-disable-line react-hooks/exhaustive-deps
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ConvStatus | 'all'>('all');

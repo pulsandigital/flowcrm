@@ -33,6 +33,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [chatContactName, setChatContactName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -87,9 +88,22 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard': return <Dashboard onNavigate={handleNavigate} />;
-      case 'pipeline': return <Pipeline selectedChannelId={selectedChannelId} onChannelChange={setSelectedChannelId} />;
+      case 'pipeline': return <Pipeline
+        selectedChannelId={selectedChannelId}
+        onChannelChange={setSelectedChannelId}
+        onOpenChat={(contactName, channelId) => {
+          setChatContactName(contactName);
+          setSelectedChannelId(channelId);
+          setPage('chat');
+        }}
+      />;
       case 'contacts': return <Contacts />;
-      case 'chat': return <Chat selectedChannelId={selectedChannelId} onChannelChange={setSelectedChannelId} />;
+      case 'chat': return <Chat
+        selectedChannelId={selectedChannelId}
+        onChannelChange={setSelectedChannelId}
+        initialContactName={chatContactName}
+        onConversationOpened={() => setChatContactName(null)}
+      />;
       case 'templates': return <Templates />;
       case 'flow': return <MessageFlow />;
       case 'reports': return <Reports />;
