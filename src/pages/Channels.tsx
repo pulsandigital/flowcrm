@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Smartphone, Plus, X, Wifi, WifiOff, RefreshCw, QrCode,
-  MessageCircle, Users, Trash2, Edit2, GitMerge, Zap
+  MessageCircle, Users, Trash2, Edit2, GitMerge, Zap,
+  CheckCircle, AlertCircle, Loader2,
 } from 'lucide-react';
+
+const EVOLUTION_API_URL = import.meta.env.VITE_EVOLUTION_API_URL as string | undefined;
+const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY as string | undefined;
 import { whatsappChannels as initialChannels } from '../data/mockData';
 import type { WhatsAppChannel, ChannelStatus } from '../types';
 import { TEAM_MEMBERS } from '../data/mockData';
@@ -18,7 +22,74 @@ const CHANNEL_COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626', '
 interface FormState { name: string; number: string; assignee: string; color: string; }
 const EMPTY_FORM: FormState = { name: '', number: '', assignee: TEAM_MEMBERS[0], color: CHANNEL_COLORS[0] };
 
+type QRStatus = 'idle' | 'loading' | 'qr_ready' | 'connected' | 'error' | 'no_api';
+
 function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel; onClose: () => void; onConnect: () => void }) {
+  const [status, setStatus] = useState<QRStatus>('idle');
+  const [qrBase64, setQrBase64] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const instanceName = `flowcrm_${channel.id}`;
+
+  const clearPoll = () => { if (pollRef.current) clearInterval(pollRef.current); };
+
+  const fetchQR = async () => {
+    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+      setStatus('no_api');
+      return;
+    }
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      const headers = { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+
+      // Create instance (ignore error if already exists)
+      await fetch(`${EVOLUTION_API_URL}/instance/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ instanceName, qrcode: true }),
+      }).catch(() => null);
+
+      // Connect and get QR
+      const res = await fetch(`${EVOLUTION_API_URL}/instance/connect/${instanceName}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data.base64) {
+        setQrBase64(data.base64);
+        setStatus('qr_ready');
+        startPolling();
+      } else {
+        throw new Error('QR code não retornado pela API');
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Erro ao conectar com a Evolution API');
+      setStatus('error');
+    }
+  };
+
+  const startPolling = () => {
+    clearPoll();
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${instanceName}`, {
+          headers: { 'apikey': EVOLUTION_API_KEY! },
+        });
+        const data = await res.json();
+        if (data.instance?.state === 'open') {
+          clearPoll();
+          setStatus('connected');
+          setTimeout(() => { onConnect(); }, 1500);
+        }
+      } catch { /* ignore poll errors */ }
+    }, 3000);
+  };
+
+  useEffect(() => {
+    fetchQR();
+    return () => clearPoll();
+  }, []);
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
@@ -29,33 +100,78 @@ function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
+
         <div className="p-6 text-center">
-          <div className="w-48 h-48 bg-gray-100 rounded-xl mx-auto mb-4 flex items-center justify-center border-2 border-dashed border-gray-300">
-            <div className="text-center">
-              <QrCode size={48} className="text-gray-400 mx-auto mb-2" />
-              <p className="text-xs text-gray-400">QR Code aparece aqui</p>
-              <p className="text-xs text-gray-400">após integrar a API</p>
+          {/* QR Display Area */}
+          <div className="w-52 h-52 bg-gray-50 rounded-xl mx-auto mb-4 flex items-center justify-center border-2 border-dashed border-gray-200 overflow-hidden">
+            {status === 'loading' && (
+              <div className="text-center">
+                <Loader2 size={36} className="text-primary-400 mx-auto mb-2 animate-spin" />
+                <p className="text-xs text-gray-400">Gerando QR Code...</p>
+              </div>
+            )}
+            {status === 'qr_ready' && qrBase64 && (
+              <img src={qrBase64} alt="QR Code WhatsApp" className="w-full h-full object-contain p-1" />
+            )}
+            {status === 'connected' && (
+              <div className="text-center">
+                <CheckCircle size={48} className="text-emerald-500 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-emerald-700">Conectado!</p>
+              </div>
+            )}
+            {status === 'error' && (
+              <div className="text-center px-3">
+                <AlertCircle size={32} className="text-red-400 mx-auto mb-2" />
+                <p className="text-xs text-red-500">{errorMsg}</p>
+              </div>
+            )}
+            {status === 'no_api' && (
+              <div className="text-center px-3">
+                <QrCode size={36} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">Configure a Evolution API para gerar o QR</p>
+              </div>
+            )}
+            {status === 'idle' && (
+              <Loader2 size={36} className="text-gray-300 animate-spin" />
+            )}
+          </div>
+
+          {/* Instructions */}
+          {status === 'qr_ready' && (
+            <div className="bg-blue-50 rounded-lg p-3 mb-4 text-left">
+              <p className="text-xs font-semibold text-blue-700 mb-1">Como escanear:</p>
+              <ol className="text-xs text-blue-600 space-y-1 list-decimal list-inside">
+                <li>Abra o WhatsApp no celular</li>
+                <li>Vá em Menu → Dispositivos Conectados</li>
+                <li>Toque em "Conectar dispositivo"</li>
+                <li>Aponte a câmera para o QR Code acima</li>
+              </ol>
+              <p className="text-xs text-blue-500 mt-2 flex items-center gap-1">
+                <RefreshCw size={10} className="animate-spin" /> Verificando conexão automaticamente...
+              </p>
             </div>
-          </div>
-          <div className="bg-blue-50 rounded-lg p-3 mb-4 text-left">
-            <p className="text-xs font-semibold text-blue-700 mb-1">Como conectar:</p>
-            <ol className="text-xs text-blue-600 space-y-1 list-decimal list-inside">
-              <li>Abra o WhatsApp no celular</li>
-              <li>Vá em Configurações → Dispositivos Conectados</li>
-              <li>Toque em "Conectar dispositivo"</li>
-              <li>Aponte a câmera para o QR Code</li>
-            </ol>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-left">
-            <p className="text-xs font-semibold text-amber-700 mb-1">⚠️ Integração necessária</p>
-            <p className="text-xs text-amber-600">Para gerar o QR Code real, conecte a <strong>Evolution API</strong> ou <strong>Z-API</strong> ao backend do sistema.</p>
-          </div>
-          <button
-            onClick={onConnect}
-            className="w-full bg-emerald-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-emerald-700 transition-colors"
-          >
-            Simular Conexão (Demo)
-          </button>
+          )}
+
+          {status === 'no_api' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-left">
+              <p className="text-xs font-semibold text-amber-700 mb-1">Configure a Evolution API</p>
+              <p className="text-xs text-amber-600 mb-2">Adicione as variáveis de ambiente no Vercel:</p>
+              <code className="block text-xs bg-amber-100 rounded p-2 text-amber-800 mb-1">VITE_EVOLUTION_API_URL</code>
+              <code className="block text-xs bg-amber-100 rounded p-2 text-amber-800">VITE_EVOLUTION_API_KEY</code>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <button onClick={fetchQR} className="w-full border border-gray-300 text-gray-700 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors mb-3 flex items-center justify-center gap-2">
+              <RefreshCw size={14} /> Tentar novamente
+            </button>
+          )}
+
+          {status === 'no_api' && (
+            <button onClick={onConnect} className="w-full bg-gray-100 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-200 transition-colors">
+              Simular conexão (demo)
+            </button>
+          )}
         </div>
       </div>
     </div>

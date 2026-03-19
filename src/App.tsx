@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './lib/supabase';
 import Sidebar from './components/Sidebar';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Pipeline from './pages/Pipeline';
 import Contacts from './pages/Contacts';
@@ -10,7 +13,7 @@ import Reports from './pages/Reports';
 import Channels from './pages/Channels';
 import Settings from './pages/Settings';
 import type { Page } from './types';
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, LogOut, Loader2 } from 'lucide-react';
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard: 'Dashboard',
@@ -25,14 +28,47 @@ const PAGE_TITLES: Record<Page, string> = {
 };
 
 export default function App() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined); // undefined = loading
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleNavigate = (p: Page, channelId?: string) => {
     setPage(p);
     if (channelId !== undefined) setSelectedChannelId(channelId);
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Loading state while checking auth
+  if (session === undefined) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  // Not logged in → show login page
+  if (!session) {
+    return <Login />;
+  }
 
   const renderPage = () => {
     switch (page) {
@@ -85,6 +121,13 @@ export default function App() {
               <Bell size={18} />
               <span className="absolute top-1 right-1 w-2 h-2 bg-primary-600 rounded-full" />
             </button>
+            <button
+              onClick={handleLogout}
+              title="Sair"
+              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </header>
         {/* Page Content */}
@@ -95,4 +138,3 @@ export default function App() {
     </div>
   );
 }
-
