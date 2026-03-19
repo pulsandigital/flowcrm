@@ -1,7 +1,9 @@
+import { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, GitMerge, Users, MessageCircle,
   FileText, Workflow, BarChart2, Settings, Zap,
-  ChevronLeft, ChevronRight, Smartphone, Plus,
+  ChevronLeft, ChevronRight, Smartphone, Plus, ChevronDown,
+  Wifi, WifiOff, Loader2,
 } from 'lucide-react';
 import type { Page } from '../types';
 import { whatsappChannels } from '../data/mockData';
@@ -15,56 +17,180 @@ interface Props {
 }
 
 const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode; badge?: number }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-  { id: 'pipeline', label: 'Pipeline', icon: <GitMerge size={20} /> },
-  { id: 'contacts', label: 'Contatos', icon: <Users size={20} /> },
-  { id: 'chat', label: 'Atendimento', icon: <MessageCircle size={20} />, badge: 6 },
-  { id: 'flow', label: 'Fluxo de Msgs', icon: <Workflow size={20} /> },
-  { id: 'templates', label: 'Templates', icon: <FileText size={20} /> },
-  { id: 'reports', label: 'Relatórios', icon: <BarChart2 size={20} /> },
+  { id: 'dashboard', label: 'Dashboard',      icon: <LayoutDashboard size={20} /> },
+  { id: 'pipeline',  label: 'Pipeline',        icon: <GitMerge size={20} /> },
+  { id: 'contacts',  label: 'Contatos',        icon: <Users size={20} /> },
+  { id: 'chat',      label: 'Atendimento',     icon: <MessageCircle size={20} />, badge: 6 },
+  { id: 'flow',      label: 'Fluxo de Msgs',   icon: <Workflow size={20} /> },
+  { id: 'templates', label: 'Templates',       icon: <FileText size={20} /> },
+  { id: 'reports',   label: 'Relatórios',      icon: <BarChart2 size={20} /> },
 ];
 
+const STATUS_ICON: Record<string, React.ReactNode> = {
+  connected:    <Wifi size={11} className="text-emerald-500" />,
+  disconnected: <WifiOff size={11} className="text-gray-400" />,
+  connecting:   <Loader2 size={11} className="text-amber-400 animate-spin" />,
+};
+
 const STATUS_DOT: Record<string, string> = {
-  connected: 'bg-emerald-500',
+  connected:    'bg-emerald-500',
   disconnected: 'bg-gray-300',
-  connecting: 'bg-amber-400 animate-pulse',
+  connecting:   'bg-amber-400 animate-pulse',
 };
 
 export default function Sidebar({ current, onNavigate, collapsed, onToggle, selectedChannelId }: Props) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // close dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const activeChannel = selectedChannelId
+    ? whatsappChannels.find(c => c.id === selectedChannelId)
+    : null;
+
   return (
-    <aside className={`flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ${collapsed ? 'w-16' : 'w-60'} min-h-screen`}>
-      {/* Logo */}
-      <div className="flex items-center justify-between px-4 py-5 border-b border-gray-100">
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+    <aside className={`flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ${collapsed ? 'w-16' : 'w-60'} min-h-screen relative`}>
+
+      {/* ── LOGO + FUNNEL DROPDOWN ────────────────────────────────────────── */}
+      <div className="relative border-b border-gray-100" ref={dropdownRef}>
+        <div className="flex items-center justify-between px-4 py-4">
+          {/* clickable logo area → opens dropdown */}
+          <button
+            onClick={() => !collapsed && setDropdownOpen(o => !o)}
+            className={`flex items-center gap-2 min-w-0 ${!collapsed ? 'hover:opacity-80 transition-opacity' : ''}`}
+            title={collapsed ? 'FlowCRM' : undefined}
+          >
+            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
               <Zap size={18} className="text-white" />
             </div>
-            <span className="font-bold text-gray-900 text-lg tracking-tight">FlowCRM</span>
-          </div>
-        )}
-        {collapsed && (
-          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center mx-auto">
-            <Zap size={18} className="text-white" />
-          </div>
-        )}
-        {!collapsed && (
-          <button onClick={onToggle} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-            <ChevronLeft size={16} />
+            {!collapsed && (
+              <>
+                <div className="min-w-0 text-left">
+                  <p className="font-bold text-gray-900 text-sm leading-tight tracking-tight">FlowCRM</p>
+                  {activeChannel ? (
+                    <p className="text-xs truncate max-w-[100px]" style={{ color: activeChannel.color }}>
+                      {activeChannel.name}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 truncate">Todos os funis</p>
+                  )}
+                </div>
+                <ChevronDown
+                  size={14}
+                  className={`text-gray-400 flex-shrink-0 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+                />
+              </>
+            )}
           </button>
+
+          {/* collapse toggle */}
+          {!collapsed && (
+            <button
+              onClick={onToggle}
+              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0 ml-1"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* ── DROPDOWN ──────────────────────────────────────────────────────── */}
+        {dropdownOpen && !collapsed && (
+          <div className="absolute top-full left-3 right-3 z-50 bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+            {/* header */}
+            <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Funis WhatsApp</span>
+              <button
+                onClick={() => { setDropdownOpen(false); onNavigate('channels'); }}
+                className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                title="Gerenciar números"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+
+            {/* "Todos" option */}
+            <button
+              onClick={() => { setDropdownOpen(false); onNavigate('pipeline', undefined); }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors ${
+                !selectedChannelId ? 'bg-gray-50 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
+              <span className="flex-1 truncate">Todos os funis</span>
+              <span className="text-xs text-gray-400">{whatsappChannels.reduce((n, _) => n, whatsappChannels.length)}</span>
+            </button>
+
+            {/* channels */}
+            <div className="max-h-56 overflow-y-auto">
+              {whatsappChannels.map(ch => {
+                const isActive = selectedChannelId === ch.id;
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => { setDropdownOpen(false); onNavigate('pipeline', ch.id); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                      isActive ? 'font-medium' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                    style={isActive ? { backgroundColor: ch.color + '12', color: ch.color } : {}}
+                  >
+                    <div className="relative flex-shrink-0">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ch.color }} />
+                      <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-white ${STATUS_DOT[ch.status]}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate font-medium">{ch.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{ch.number}</p>
+                    </div>
+                    <div className="flex-shrink-0 flex items-center gap-1">
+                      {STATUS_ICON[ch.status]}
+                      <button
+                        onClick={e => { e.stopPropagation(); setDropdownOpen(false); onNavigate('chat', ch.id); }}
+                        className="p-1 text-gray-300 hover:text-primary-600 rounded transition-colors"
+                        title="Ver conversas"
+                      >
+                        <MessageCircle size={12} />
+                      </button>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* footer */}
+            <div className="border-t border-gray-100">
+              <button
+                onClick={() => { setDropdownOpen(false); onNavigate('channels'); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+              >
+                <Smartphone size={13} />
+                <span>+ Conectar número</span>
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
+      {/* collapse toggle when collapsed */}
       {collapsed && (
         <button onClick={onToggle} className="p-2 mx-auto mt-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
           <ChevronRight size={16} />
         </button>
       )}
 
-      {/* Main Nav */}
-      <nav className="py-3 space-y-0.5 px-2">
+      {/* ── MAIN NAV ─────────────────────────────────────────────────────────── */}
+      <nav className="py-3 space-y-0.5 px-2 flex-1">
         {NAV_ITEMS.map((item) => {
-          const active = current === item.id && !selectedChannelId;
+          const active = current === item.id;
           return (
             <button
               key={item.id}
@@ -86,98 +212,7 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
         })}
       </nav>
 
-      {/* WhatsApp Channels Section */}
-      {!collapsed && (
-        <div className="px-2 mt-2 flex-1 overflow-y-auto">
-          <div className="px-3 py-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Funis WhatsApp</span>
-            <button
-              onClick={() => onNavigate('channels')}
-              className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
-              title="Gerenciar números"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-          <div className="space-y-0.5">
-            {/* "Todos" option */}
-            <button
-              onClick={() => { onNavigate('pipeline', undefined); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                (current === 'pipeline' || current === 'chat') && !selectedChannelId
-                  ? 'bg-gray-100 text-gray-900 font-medium'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
-              <span className="truncate">Todos os funis</span>
-            </button>
-
-            {whatsappChannels.map(ch => {
-              const isSelected = selectedChannelId === ch.id && (current === 'pipeline' || current === 'chat');
-              return (
-                <button
-                  key={ch.id}
-                  onClick={() => onNavigate('pipeline', ch.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors group ${
-                    isSelected ? 'text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                  style={isSelected ? { backgroundColor: ch.color + '18' } : {}}
-                >
-                  <div className="relative flex-shrink-0">
-                    <div
-                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: ch.color }}
-                    />
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${STATUS_DOT[ch.status]}`} />
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="truncate text-sm">{ch.name}</p>
-                    <p className="text-xs text-gray-400 truncate">{ch.number}</p>
-                  </div>
-                  <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={e => { e.stopPropagation(); onNavigate('chat', ch.id); }}
-                      className="p-1 text-gray-400 hover:text-primary-600 rounded"
-                      title="Ver conversas"
-                    >
-                      <MessageCircle size={12} />
-                    </button>
-                  </div>
-                </button>
-              );
-            })}
-
-            <button
-              onClick={() => onNavigate('channels')}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
-            >
-              <Smartphone size={14} />
-              <span>+ Conectar número</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {collapsed && (
-        <div className="flex-1 py-2 px-2 space-y-1">
-          {whatsappChannels.map(ch => (
-            <button
-              key={ch.id}
-              onClick={() => onNavigate('pipeline', ch.id)}
-              title={`${ch.name} · ${ch.number}`}
-              className="w-full flex items-center justify-center py-2 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <div className="relative">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ch.color }} />
-                <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${STATUS_DOT[ch.status]}`} />
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Settings & User */}
+      {/* ── BOTTOM ───────────────────────────────────────────────────────────── */}
       <div className="border-t border-gray-100 p-2 space-y-1 flex-shrink-0">
         <button
           onClick={() => onNavigate('settings')}
