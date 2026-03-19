@@ -7,6 +7,7 @@ import Chat from './pages/Chat';
 import Templates from './pages/Templates';
 import MessageFlow from './pages/MessageFlow';
 import Reports from './pages/Reports';
+import Channels from './pages/Channels';
 import type { Page } from './types';
 import { Bell, Search } from 'lucide-react';
 
@@ -18,24 +19,32 @@ const PAGE_TITLES: Record<Page, string> = {
   flow: 'Fluxo de Mensagens',
   templates: 'Templates',
   reports: 'Relatórios',
+  channels: 'Números de WhatsApp',
   settings: 'Configurações',
 };
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+
+  const handleNavigate = (p: Page, channelId?: string) => {
+    setPage(p);
+    if (channelId !== undefined) setSelectedChannelId(channelId);
+  };
 
   const renderPage = () => {
     switch (page) {
-      case 'dashboard': return <Dashboard onNavigate={setPage} />;
-      case 'pipeline': return <Pipeline />;
+      case 'dashboard': return <Dashboard onNavigate={handleNavigate} />;
+      case 'pipeline': return <Pipeline selectedChannelId={selectedChannelId} onChannelChange={setSelectedChannelId} />;
       case 'contacts': return <Contacts />;
-      case 'chat': return <Chat />;
+      case 'chat': return <Chat selectedChannelId={selectedChannelId} onChannelChange={setSelectedChannelId} />;
       case 'templates': return <Templates />;
       case 'flow': return <MessageFlow />;
       case 'reports': return <Reports />;
-      case 'settings': return <Settings />;
-      default: return <Dashboard onNavigate={setPage} />;
+      case 'channels': return <Channels />;
+      case 'settings': return <SettingsPage />;
+      default: return <Dashboard onNavigate={handleNavigate} />;
     }
   };
 
@@ -43,14 +52,25 @@ export default function App() {
     <div className="flex h-screen overflow-hidden bg-gray-50">
       <Sidebar
         current={page}
-        onNavigate={setPage}
+        onNavigate={handleNavigate}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        selectedChannelId={selectedChannelId}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header */}
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
-          <h1 className="text-lg font-semibold text-gray-800">{PAGE_TITLES[page]}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold text-gray-800">{PAGE_TITLES[page]}</h1>
+            {selectedChannelId && (page === 'pipeline' || page === 'chat') && (
+              <button
+                onClick={() => setSelectedChannelId(null)}
+                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-full px-2 py-0.5 hover:bg-gray-50 transition-colors"
+              >
+                ✕ limpar filtro
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -75,7 +95,7 @@ export default function App() {
   );
 }
 
-function Settings() {
+function SettingsPage() {
   return (
     <div className="p-8 max-w-2xl">
       <p className="text-gray-500">Configurações em breve...</p>

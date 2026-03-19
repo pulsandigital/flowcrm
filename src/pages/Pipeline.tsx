@@ -1,7 +1,12 @@
 import { useState } from 'react';
-import { Plus, MoreHorizontal, DollarSign, User, ChevronRight, ChevronLeft, X } from 'lucide-react';
-import { deals as initialDeals, TEAM_MEMBERS } from '../data/mockData';
+import { Plus, MoreHorizontal, DollarSign, User, ChevronRight, ChevronLeft, X, Smartphone } from 'lucide-react';
+import { deals as initialDeals, TEAM_MEMBERS, whatsappChannels } from '../data/mockData';
 import type { Deal, DealStage } from '../types';
+
+interface Props {
+  selectedChannelId: string | null;
+  onChannelChange: (id: string | null) => void;
+}
 
 const STAGES: { id: DealStage; label: string; color: string; dot: string }[] = [
   { id: 'new', label: 'Novo Lead', color: 'bg-slate-100', dot: 'bg-slate-400' },
@@ -16,11 +21,14 @@ const STAGE_ORDER = STAGES.map(s => s.id);
 
 interface NewDeal { title: string; contactName: string; company: string; value: string; assignee: string; }
 
-export default function Pipeline() {
+export default function Pipeline({ selectedChannelId, onChannelChange }: Props) {
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<NewDeal>({ title: '', contactName: '', company: '', value: '', assignee: TEAM_MEMBERS[0] });
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+
+  const activeChannel = selectedChannelId ? whatsappChannels.find(c => c.id === selectedChannelId) : null;
+  const visibleDeals = selectedChannelId ? deals.filter(d => d.channelId === selectedChannelId) : deals;
 
   const moveStage = (dealId: string, dir: 'prev' | 'next') => {
     setDeals(prev => prev.map(d => {
@@ -38,23 +46,68 @@ export default function Pipeline() {
       company: form.company, value: Number(form.value) || 0, stage: 'new',
       assignee: form.assignee, probability: 15, createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
+      channelId: selectedChannelId || whatsappChannels[0].id,
     };
     setDeals(prev => [nd, ...prev]);
     setForm({ title: '', contactName: '', company: '', value: '', assignee: TEAM_MEMBERS[0] });
     setShowModal(false);
   };
 
-  const totalValue = deals.reduce((s, d) => s + d.value, 0);
-  const wonValue = deals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0);
+  const totalValue = visibleDeals.reduce((s, d) => s + d.value, 0);
+  const wonValue = visibleDeals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0);
 
   return (
     <div className="flex flex-col h-full">
+      {/* Channel Tabs */}
+      <div className="bg-white border-b border-gray-200 px-4 pt-3 flex-shrink-0">
+        <div className="flex items-center gap-1 overflow-x-auto pb-0">
+          <button
+            onClick={() => onChannelChange(null)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+              !selectedChannelId ? 'border-primary-600 text-primary-700 bg-primary-50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Smartphone size={14} />
+            Todos os funis
+            <span className="bg-gray-200 text-gray-600 text-xs rounded-full px-1.5 py-0.5">{deals.length}</span>
+          </button>
+          {whatsappChannels.map(ch => {
+            const count = deals.filter(d => d.channelId === ch.id).length;
+            const isActive = selectedChannelId === ch.id;
+            return (
+              <button
+                key={ch.id}
+                onClick={() => onChannelChange(ch.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+                  isActive ? 'border-b-2 text-gray-900 bg-gray-50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+                style={isActive ? { borderBottomColor: ch.color } : {}}
+              >
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ch.color }} />
+                {ch.name}
+                <span className="text-xs px-1.5 py-0.5 rounded-full" style={isActive ? { backgroundColor: ch.color + '20', color: ch.color } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Header Bar */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
+      <div className="bg-white border-b border-gray-100 px-6 py-2.5 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-6 text-sm">
-          <span className="text-gray-500">Total pipeline: <strong className="text-gray-800">R$ {totalValue.toLocaleString('pt-BR')}</strong></span>
+          {activeChannel && (
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: activeChannel.color }} />
+              <span className="font-medium text-gray-700">{activeChannel.name}</span>
+              <span className="text-gray-400">·</span>
+              <span className="text-gray-500">{activeChannel.number}</span>
+            </div>
+          )}
+          <span className="text-gray-500">Pipeline: <strong className="text-gray-800">R$ {totalValue.toLocaleString('pt-BR')}</strong></span>
           <span className="text-gray-500">Ganho: <strong className="text-emerald-600">R$ {wonValue.toLocaleString('pt-BR')}</strong></span>
-          <span className="text-gray-500">{deals.length} negócios</span>
+          <span className="text-gray-500">{visibleDeals.length} negócios</span>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -68,7 +121,7 @@ export default function Pipeline() {
       <div className="flex-1 overflow-x-auto p-4">
         <div className="flex gap-3 h-full min-w-max">
           {STAGES.map(stage => {
-            const stageDeals = deals.filter(d => d.stage === stage.id);
+            const stageDeals = visibleDeals.filter(d => d.stage === stage.id);
             const stageTotal = stageDeals.reduce((s, d) => s + d.value, 0);
             return (
               <div key={stage.id} className={`w-64 flex flex-col rounded-xl ${stage.color} border border-gray-200`}>

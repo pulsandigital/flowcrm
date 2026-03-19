@@ -6,7 +6,23 @@ export type Page =
   | 'templates'
   | 'flow'
   | 'reports'
+  | 'channels'
   | 'settings';
+
+export type ChannelStatus = 'connected' | 'disconnected' | 'connecting';
+
+export interface WhatsAppChannel {
+  id: string;
+  name: string;
+  number: string;
+  status: ChannelStatus;
+  color: string;
+  assignee: string;
+  flowId?: string;
+  leadsCount: number;
+  messagesCount: number;
+  createdAt: string;
+}
 
 export type DealStage =
   | 'new'
@@ -48,6 +64,7 @@ export interface Deal {
   probability: number;
   createdAt: string;
   updatedAt: string;
+  channelId: string;
 }
 
 export interface ChatMessage {
@@ -67,6 +84,7 @@ export interface Conversation {
   status: ConvStatus;
   assignee: string;
   channel: Channel;
+  channelId: string;
   tags: string[];
   inFlow: boolean;
   messages: ChatMessage[];

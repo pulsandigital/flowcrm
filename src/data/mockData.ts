@@ -1,6 +1,29 @@
-import type { Contact, Deal, Conversation, MessageTemplate, MessageFlow } from '../types';
+import type { Contact, Deal, Conversation, MessageTemplate, MessageFlow, WhatsAppChannel } from '../types';
 
 export const TEAM_MEMBERS = ['Ana Lima', 'Carlos Souza', 'Beatriz Costa', 'Rafael Mendes'];
+
+export const whatsappChannels: WhatsAppChannel[] = [
+  {
+    id: 'ch1', name: 'Comercial', number: '(11) 99100-2030',
+    status: 'connected', color: '#7c3aed', assignee: 'Ana Lima',
+    flowId: 'f1', leadsCount: 61, messagesCount: 234, createdAt: '2024-01-10',
+  },
+  {
+    id: 'ch2', name: 'Suporte', number: '(11) 99100-2031',
+    status: 'connected', color: '#2563eb', assignee: 'Carlos Souza',
+    flowId: 'f2', leadsCount: 38, messagesCount: 142, createdAt: '2024-01-15',
+  },
+  {
+    id: 'ch3', name: 'Pós-venda', number: '(11) 99100-2032',
+    status: 'disconnected', color: '#059669', assignee: 'Beatriz Costa',
+    leadsCount: 22, messagesCount: 89, createdAt: '2024-02-01',
+  },
+  {
+    id: 'ch4', name: 'SDR / Prospecção', number: '(11) 99100-2033',
+    status: 'connecting', color: '#d97706', assignee: 'Rafael Mendes',
+    flowId: 'f3', leadsCount: 15, messagesCount: 47, createdAt: '2024-03-01',
+  },
+];
 
 export const contacts: Contact[] = [
   {
@@ -46,16 +69,16 @@ export const contacts: Contact[] = [
 ];
 
 export const deals: Deal[] = [
-  { id: 'd1', title: 'Gestão de Redes Sociais', contactId: 'c1', contactName: 'Mariana Oliveira', company: 'Tech Solutions Ltda', value: 4800, stage: 'negotiation', assignee: 'Ana Lima', probability: 75, createdAt: '2024-02-01', updatedAt: '2024-03-10' },
-  { id: 'd2', title: 'Criação de Site Institucional', contactId: 'c2', contactName: 'João Pedro Santos', company: 'StartUp Digital', value: 8500, stage: 'proposal', assignee: 'Carlos Souza', probability: 50, createdAt: '2024-02-15', updatedAt: '2024-03-12' },
-  { id: 'd3', title: 'Consultoria de Marketing Digital', contactId: 'c3', contactName: 'Fernanda Rocha', company: 'Rocha Consultoria', value: 3200, stage: 'qualifying', assignee: 'Beatriz Costa', probability: 30, createdAt: '2024-03-01', updatedAt: '2024-03-11' },
-  { id: 'd4', title: 'Campanha Google Ads', contactId: 'c4', contactName: 'Ricardo Alves', company: 'Alves & Associados', value: 6000, stage: 'won', assignee: 'Rafael Mendes', probability: 100, createdAt: '2024-01-10', updatedAt: '2024-03-09' },
-  { id: 'd5', title: 'Branding Completo', contactId: 'c5', contactName: 'Camila Ferreira', company: 'Ferreira Marketing', value: 12000, stage: 'new', assignee: 'Ana Lima', probability: 15, createdAt: '2024-03-01', updatedAt: '2024-03-13' },
-  { id: 'd6', title: 'Email Marketing Mensal', contactId: 'c6', contactName: 'Thiago Barbosa', company: 'Barbosa Group', value: 2400, stage: 'negotiation', assignee: 'Carlos Souza', probability: 80, createdAt: '2024-02-20', updatedAt: '2024-03-08' },
-  { id: 'd7', title: 'SEO e Conteúdo', contactId: 'c7', contactName: 'Letícia Nunes', company: 'Nunes E-commerce', value: 3600, stage: 'lost', assignee: 'Beatriz Costa', probability: 0, createdAt: '2024-01-25', updatedAt: '2024-02-28' },
-  { id: 'd8', title: 'Tráfego Pago Meta + Google', contactId: 'c8', contactName: 'Bruno Castro', company: 'Castro Engenharia', value: 5500, stage: 'proposal', assignee: 'Rafael Mendes', probability: 45, createdAt: '2024-02-12', updatedAt: '2024-03-12' },
-  { id: 'd9', title: 'Automação de Marketing', contactId: 'c1', contactName: 'Mariana Oliveira', company: 'Tech Solutions Ltda', value: 7200, stage: 'qualifying', assignee: 'Ana Lima', probability: 35, createdAt: '2024-03-05', updatedAt: '2024-03-13' },
-  { id: 'd10', title: 'Produção de Vídeos', contactId: 'c4', contactName: 'Ricardo Alves', company: 'Alves & Associados', value: 9800, stage: 'new', assignee: 'Rafael Mendes', probability: 20, createdAt: '2024-03-10', updatedAt: '2024-03-13' },
+  { id: 'd1', title: 'Gestão de Redes Sociais', contactId: 'c1', contactName: 'Mariana Oliveira', company: 'Tech Solutions Ltda', value: 4800, stage: 'negotiation', assignee: 'Ana Lima', probability: 75, createdAt: '2024-02-01', updatedAt: '2024-03-10', channelId: 'ch1' },
+  { id: 'd2', title: 'Criação de Site Institucional', contactId: 'c2', contactName: 'João Pedro Santos', company: 'StartUp Digital', value: 8500, stage: 'proposal', assignee: 'Carlos Souza', probability: 50, createdAt: '2024-02-15', updatedAt: '2024-03-12', channelId: 'ch1' },
+  { id: 'd3', title: 'Consultoria de Marketing Digital', contactId: 'c3', contactName: 'Fernanda Rocha', company: 'Rocha Consultoria', value: 3200, stage: 'qualifying', assignee: 'Beatriz Costa', probability: 30, createdAt: '2024-03-01', updatedAt: '2024-03-11', channelId: 'ch2' },
+  { id: 'd4', title: 'Campanha Google Ads', contactId: 'c4', contactName: 'Ricardo Alves', company: 'Alves & Associados', value: 6000, stage: 'won', assignee: 'Rafael Mendes', probability: 100, createdAt: '2024-01-10', updatedAt: '2024-03-09', channelId: 'ch2' },
+  { id: 'd5', title: 'Branding Completo', contactId: 'c5', contactName: 'Camila Ferreira', company: 'Ferreira Marketing', value: 12000, stage: 'new', assignee: 'Ana Lima', probability: 15, createdAt: '2024-03-01', updatedAt: '2024-03-13', channelId: 'ch1' },
+  { id: 'd6', title: 'Email Marketing Mensal', contactId: 'c6', contactName: 'Thiago Barbosa', company: 'Barbosa Group', value: 2400, stage: 'negotiation', assignee: 'Carlos Souza', probability: 80, createdAt: '2024-02-20', updatedAt: '2024-03-08', channelId: 'ch3' },
+  { id: 'd7', title: 'SEO e Conteúdo', contactId: 'c7', contactName: 'Letícia Nunes', company: 'Nunes E-commerce', value: 3600, stage: 'lost', assignee: 'Beatriz Costa', probability: 0, createdAt: '2024-01-25', updatedAt: '2024-02-28', channelId: 'ch3' },
+  { id: 'd8', title: 'Tráfego Pago Meta + Google', contactId: 'c8', contactName: 'Bruno Castro', company: 'Castro Engenharia', value: 5500, stage: 'proposal', assignee: 'Rafael Mendes', probability: 45, createdAt: '2024-02-12', updatedAt: '2024-03-12', channelId: 'ch4' },
+  { id: 'd9', title: 'Automação de Marketing', contactId: 'c1', contactName: 'Mariana Oliveira', company: 'Tech Solutions Ltda', value: 7200, stage: 'qualifying', assignee: 'Ana Lima', probability: 35, createdAt: '2024-03-05', updatedAt: '2024-03-13', channelId: 'ch1' },
+  { id: 'd10', title: 'Produção de Vídeos', contactId: 'c4', contactName: 'Ricardo Alves', company: 'Alves & Associados', value: 9800, stage: 'new', assignee: 'Rafael Mendes', probability: 20, createdAt: '2024-03-10', updatedAt: '2024-03-13', channelId: 'ch4' },
 ];
 
 const makeMessages = (contactName: string) => [
@@ -66,12 +89,12 @@ const makeMessages = (contactName: string) => [
 ];
 
 export const conversations: Conversation[] = [
-  { id: 'cv1', contact: contacts[0], lastMessage: 'Nossos planos começam a partir de R$ 1.500/mês...', lastMessageTime: '14:27', unreadCount: 0, status: 'open', assignee: 'Ana Lima', channel: 'whatsapp', tags: ['Quente', 'VIP'], inFlow: false, messages: makeMessages(contacts[0].name) },
-  { id: 'cv2', contact: contacts[1], lastMessage: 'Oi, vi o post de vocês no Instagram e me interessei!', lastMessageTime: '13:45', unreadCount: 3, status: 'waiting', assignee: 'Carlos Souza', channel: 'instagram', tags: ['Novo Lead'], inFlow: true, messages: [{ id: 'm1', content: 'Oi, vi o post de vocês no Instagram e me interessei!', sender: 'contact', timestamp: '13:45', status: 'delivered' }] },
-  { id: 'cv3', contact: contacts[2], lastMessage: 'Perfeito! Aguardo a proposta por email.', lastMessageTime: 'Ontem', unreadCount: 1, status: 'open', assignee: 'Beatriz Costa', channel: 'whatsapp', tags: ['Follow-up'], inFlow: false, messages: [{ id: 'm1', content: 'Perfeito! Aguardo a proposta por email.', sender: 'contact', timestamp: 'Ontem', status: 'read' }] },
-  { id: 'cv4', contact: contacts[3], lastMessage: 'Ótimo trabalho este mês! Renovo sim.', lastMessageTime: 'Ontem', unreadCount: 0, status: 'resolved', assignee: 'Rafael Mendes', channel: 'whatsapp', tags: ['Renovação', 'VIP'], inFlow: false, messages: [{ id: 'm1', content: 'Ótimo trabalho este mês! Renovo sim.', sender: 'contact', timestamp: 'Ontem', status: 'read' }] },
-  { id: 'cv5', contact: contacts[4], lastMessage: 'Qual o prazo para entrega do branding?', lastMessageTime: '10:15', unreadCount: 2, status: 'open', assignee: 'Ana Lima', channel: 'webchat', tags: ['Novo'], inFlow: true, messages: [{ id: 'm1', content: 'Qual o prazo para entrega do branding?', sender: 'contact', timestamp: '10:15', status: 'delivered' }] },
-  { id: 'cv6', contact: contacts[5], lastMessage: 'Vamos marcar uma reunião na próxima semana?', lastMessageTime: '09:30', unreadCount: 0, status: 'waiting', assignee: 'Carlos Souza', channel: 'whatsapp', tags: ['VIP'], inFlow: false, messages: [{ id: 'm1', content: 'Vamos marcar uma reunião na próxima semana?', sender: 'contact', timestamp: '09:30', status: 'read' }] },
+  { id: 'cv1', contact: contacts[0], lastMessage: 'Nossos planos começam a partir de R$ 1.500/mês...', lastMessageTime: '14:27', unreadCount: 0, status: 'open', assignee: 'Ana Lima', channel: 'whatsapp', channelId: 'ch1', tags: ['Quente', 'VIP'], inFlow: false, messages: makeMessages(contacts[0].name) },
+  { id: 'cv2', contact: contacts[1], lastMessage: 'Oi, vi o post de vocês no Instagram e me interessei!', lastMessageTime: '13:45', unreadCount: 3, status: 'waiting', assignee: 'Carlos Souza', channel: 'instagram', channelId: 'ch1', tags: ['Novo Lead'], inFlow: true, messages: [{ id: 'm1', content: 'Oi, vi o post de vocês no Instagram e me interessei!', sender: 'contact', timestamp: '13:45', status: 'delivered' }] },
+  { id: 'cv3', contact: contacts[2], lastMessage: 'Perfeito! Aguardo a proposta por email.', lastMessageTime: 'Ontem', unreadCount: 1, status: 'open', assignee: 'Beatriz Costa', channel: 'whatsapp', channelId: 'ch2', tags: ['Follow-up'], inFlow: false, messages: [{ id: 'm1', content: 'Perfeito! Aguardo a proposta por email.', sender: 'contact', timestamp: 'Ontem', status: 'read' }] },
+  { id: 'cv4', contact: contacts[3], lastMessage: 'Ótimo trabalho este mês! Renovo sim.', lastMessageTime: 'Ontem', unreadCount: 0, status: 'resolved', assignee: 'Rafael Mendes', channel: 'whatsapp', channelId: 'ch3', tags: ['Renovação', 'VIP'], inFlow: false, messages: [{ id: 'm1', content: 'Ótimo trabalho este mês! Renovo sim.', sender: 'contact', timestamp: 'Ontem', status: 'read' }] },
+  { id: 'cv5', contact: contacts[4], lastMessage: 'Qual o prazo para entrega do branding?', lastMessageTime: '10:15', unreadCount: 2, status: 'open', assignee: 'Ana Lima', channel: 'webchat', channelId: 'ch1', tags: ['Novo'], inFlow: true, messages: [{ id: 'm1', content: 'Qual o prazo para entrega do branding?', sender: 'contact', timestamp: '10:15', status: 'delivered' }] },
+  { id: 'cv6', contact: contacts[5], lastMessage: 'Vamos marcar uma reunião na próxima semana?', lastMessageTime: '09:30', unreadCount: 0, status: 'waiting', assignee: 'Carlos Souza', channel: 'whatsapp', channelId: 'ch4', tags: ['VIP'], inFlow: false, messages: [{ id: 'm1', content: 'Vamos marcar uma reunião na próxima semana?', sender: 'contact', timestamp: '09:30', status: 'read' }] },
 ];
 
 export const templates: MessageTemplate[] = [

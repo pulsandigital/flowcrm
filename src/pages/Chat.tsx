@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import {
-  Send, Paperclip, Smile, Search, Filter, MoreHorizontal,
+  Send, Paperclip, Smile, Search, MoreHorizontal,
   Bot, CheckCheck, Clock, Tag, User, Phone, ChevronDown
 } from 'lucide-react';
-import { conversations as initialConvs } from '../data/mockData';
+import { conversations as initialConvs, whatsappChannels } from '../data/mockData';
 import type { Conversation, ChatMessage, ConvStatus } from '../types';
+
+interface Props {
+  selectedChannelId: string | null;
+  onChannelChange: (id: string | null) => void;
+}
 
 const channelIcons: Record<string, string> = { whatsapp: '📱', instagram: '📸', email: '✉️', webchat: '💬' };
 const channelLabel: Record<string, string> = { whatsapp: 'WhatsApp', instagram: 'Instagram', email: 'Email', webchat: 'Web Chat' };
@@ -23,17 +28,20 @@ const QUICK_REPLIES = [
   'Pode me passar mais detalhes?',
 ];
 
-export default function Chat() {
+export default function Chat({ selectedChannelId, onChannelChange }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConvs);
   const [selected, setSelected] = useState<Conversation>(initialConvs[0]);
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ConvStatus | 'all'>('all');
 
+  const activeChannel = selectedChannelId ? whatsappChannels.find(c => c.id === selectedChannelId) : null;
+
   const filtered = conversations.filter(c => {
     const matchSearch = c.contact.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || c.status === filterStatus;
-    return matchSearch && matchStatus;
+    const matchChannel = !selectedChannelId || c.channelId === selectedChannelId;
+    return matchSearch && matchStatus && matchChannel;
   });
 
   const sendMessage = () => {
@@ -69,6 +77,32 @@ export default function Chat() {
     <div className="flex h-full bg-white">
       {/* Sidebar: Conversation List */}
       <div className="w-72 border-r border-gray-200 flex flex-col flex-shrink-0">
+        {/* Channel Tabs */}
+        <div className="border-b border-gray-200 overflow-x-auto">
+          <div className="flex min-w-max">
+            <button
+              onClick={() => onChannelChange(null)}
+              className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                !selectedChannelId ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Todos
+            </button>
+            {whatsappChannels.map(ch => (
+              <button
+                key={ch.id}
+                onClick={() => onChannelChange(ch.id)}
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  selectedChannelId === ch.id ? 'text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                style={selectedChannelId === ch.id ? { borderBottomColor: ch.color, color: ch.color } : {}}
+              >
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: ch.color }} />
+                {ch.name}
+              </button>
+            ))}
+          </div>
+        </div>
         {/* Search & Filter */}
         <div className="p-3 border-b border-gray-100 space-y-2">
           <div className="relative">
