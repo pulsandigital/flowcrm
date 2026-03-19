@@ -21,7 +21,9 @@ interface Integration {
   description: string;
   icon: React.ReactNode;
   status: 'connected' | 'disconnected' | 'coming_soon';
-  category: 'messaging' | 'ads' | 'tools';
+  category: 'messaging' | 'ads' | 'analytics' | 'tools';
+  fieldLabel?: string;
+  fieldPlaceholder?: string;
 }
 
 interface TeamUser {
@@ -74,7 +76,7 @@ const INTEGRATIONS: Integration[] = [
   {
     id: 'google_ads',
     name: 'Google Ads',
-    description: 'Importe leads e gerencie campanhas Google',
+    description: 'Importe leads e rastreie conversões de campanhas Google',
     icon: (
       <svg viewBox="0 0 24 24" className="w-6 h-6">
         <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -83,8 +85,58 @@ const INTEGRATIONS: Integration[] = [
         <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
       </svg>
     ),
-    status: 'coming_soon',
+    status: 'disconnected',
     category: 'ads',
+    fieldLabel: 'Customer ID',
+    fieldPlaceholder: '123-456-7890',
+  },
+  // ── Analytics ──────────────────────────────────────────────────────────────
+  {
+    id: 'ga4',
+    name: 'Google Analytics 4',
+    description: 'Envie eventos de leads, deals e conversões para o GA4',
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-6 h-6">
+        <path fill="#E37400" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+        <path fill="#fff" d="M13.5 7h-3v6.5l3 3V7z"/>
+        <path fill="#fff" d="M16.5 10.5h-2V17l2-2v-4.5z"/>
+        <path fill="#fff" d="M10.5 13.5h-2V17l2-2v-1.5z"/>
+      </svg>
+    ),
+    status: 'disconnected',
+    category: 'analytics',
+    fieldLabel: 'Measurement ID',
+    fieldPlaceholder: 'G-XXXXXXXXXX',
+  },
+  {
+    id: 'gtm',
+    name: 'Google Tag Manager',
+    description: 'Dispare tags e eventos via GTM sem alterar o código',
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-6 h-6">
+        <rect x="2" y="2" width="20" height="20" rx="3" fill="#8AB4F8"/>
+        <path fill="#fff" d="M12 5l-5 7h3.5v7h3V12H17L12 5z"/>
+      </svg>
+    ),
+    status: 'disconnected',
+    category: 'analytics',
+    fieldLabel: 'Container ID',
+    fieldPlaceholder: 'GTM-XXXXXXX',
+  },
+  {
+    id: 'google_analytics_ua',
+    name: 'Google Analytics (Universal)',
+    description: 'Compatibilidade com propriedades UA legadas',
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-6 h-6">
+        <path fill="#F9AB00" d="M22 12c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2s10 4.48 10 10z"/>
+        <path fill="#fff" d="M9 16V8l3 4 3-4v8"/>
+      </svg>
+    ),
+    status: 'disconnected',
+    category: 'analytics',
+    fieldLabel: 'Tracking ID',
+    fieldPlaceholder: 'UA-XXXXXXXXX-X',
   },
   {
     id: 'zapier',
@@ -215,15 +267,32 @@ export default function Settings() {
 /* ─── Integrations Tab ─── */
 function IntegrationsTab() {
   const [connectedIds, setConnectedIds] = useState<string[]>(['whatsapp']);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
 
   const categories = [
-    { key: 'messaging', label: 'Canais de Mensagem' },
-    { key: 'ads', label: 'Plataformas de Anúncio' },
-    { key: 'tools', label: 'Ferramentas & Automação' },
+    { key: 'messaging',  label: 'Canais de Mensagem' },
+    { key: 'ads',        label: 'Plataformas de Anúncio' },
+    { key: 'analytics',  label: 'Rastreamento & Analytics' },
+    { key: 'tools',      label: 'Ferramentas & Automação' },
   ] as const;
 
-  const toggle = (id: string) => {
-    setConnectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggle = (integration: Integration) => {
+    const id = integration.id;
+    if (connectedIds.includes(id)) {
+      setConnectedIds(prev => prev.filter(x => x !== id));
+      setExpandedId(null);
+    } else if (integration.fieldLabel) {
+      // needs a field → expand inline
+      setExpandedId(prev => prev === id ? null : id);
+    } else {
+      setConnectedIds(prev => [...prev, id]);
+    }
+  };
+
+  const confirmConnect = (id: string) => {
+    setConnectedIds(prev => [...prev, id]);
+    setExpandedId(null);
   };
 
   return (
@@ -235,6 +304,7 @@ function IntegrationsTab() {
 
       {categories.map(cat => {
         const items = INTEGRATIONS.filter(i => i.category === cat.key);
+        if (items.length === 0) return null;
         return (
           <div key={cat.key}>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">{cat.label}</h3>
@@ -242,44 +312,74 @@ function IntegrationsTab() {
               {items.map(integration => {
                 const isConnected = connectedIds.includes(integration.id);
                 const isComingSoon = integration.status === 'coming_soon';
+                const isExpanded = expandedId === integration.id;
                 return (
                   <div
                     key={integration.id}
-                    className={`flex items-center justify-between p-4 bg-white border rounded-xl transition-all ${
-                      isConnected ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200'
+                    className={`bg-white border rounded-xl transition-all overflow-hidden ${
+                      isConnected ? 'border-emerald-200 bg-emerald-50/20' : isExpanded ? 'border-primary-300' : 'border-gray-200'
                     } ${isComingSoon ? 'opacity-60' : ''}`}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0">
-                        {integration.icon}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900">{integration.name}</p>
-                          {isComingSoon && (
-                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Em breve</span>
+                    <div className="flex items-center justify-between p-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0">
+                          {integration.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{integration.name}</p>
+                            {isComingSoon && (
+                              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Em breve</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-500 mt-0.5">{integration.description}</p>
+                          {isConnected && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <CheckCircle size={12} className="text-emerald-500" />
+                              <span className="text-xs text-emerald-600 font-medium">
+                                Conectado{integration.fieldLabel && fieldValues[integration.id] ? ` · ${fieldValues[integration.id]}` : ''}
+                              </span>
+                            </div>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500 mt-0.5">{integration.description}</p>
-                        {isConnected && (
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <CheckCircle size={12} className="text-emerald-500" />
-                            <span className="text-xs text-emerald-600 font-medium">Conectado</span>
-                          </div>
-                        )}
                       </div>
+                      {!isComingSoon && (
+                        <button
+                          onClick={() => toggle(integration)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                            isConnected
+                              ? 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
+                              : isExpanded
+                                ? 'bg-gray-100 text-gray-600'
+                                : 'bg-primary-600 text-white hover:bg-primary-700'
+                          }`}
+                        >
+                          {isConnected ? 'Desconectar' : isExpanded ? 'Cancelar' : 'Conectar'}
+                        </button>
+                      )}
                     </div>
-                    {!isComingSoon && (
-                      <button
-                        onClick={() => toggle(integration.id)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
-                          isConnected
-                            ? 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-                            : 'bg-primary-600 text-white hover:bg-primary-700'
-                        }`}
-                      >
-                        {isConnected ? 'Desconectar' : 'Conectar'}
-                      </button>
+
+                    {/* Inline field for ID-based integrations */}
+                    {isExpanded && integration.fieldLabel && (
+                      <div className="px-4 pb-4 border-t border-primary-100 pt-3 bg-primary-50/30">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1.5">{integration.fieldLabel}</label>
+                        <div className="flex gap-2">
+                          <input
+                            value={fieldValues[integration.id] ?? ''}
+                            onChange={e => setFieldValues(prev => ({ ...prev, [integration.id]: e.target.value }))}
+                            placeholder={integration.fieldPlaceholder}
+                            className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
+                          />
+                          <button
+                            onClick={() => confirmConnect(integration.id)}
+                            disabled={!fieldValues[integration.id]?.trim()}
+                            className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Salvar
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1.5">Cole o ID fornecido pela plataforma.</p>
+                      </div>
                     )}
                   </div>
                 );
