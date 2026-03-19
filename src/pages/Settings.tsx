@@ -453,7 +453,7 @@ interface ToolsTabProps {
 }
 
 function ToolsTab({ webhookUrl, setWebhookUrl, openAiKey, setOpenAiKey, notifications, setNotifications }: ToolsTabProps) {
-  const notifItems = [
+  const notifItems: { key: keyof NotificationSettings; label: string; desc: string }[] = [
     { key: 'newLead', label: 'Novo lead criado', desc: 'Notificar quando um novo lead entrar' },
     { key: 'newMessage', label: 'Nova mensagem recebida', desc: 'Notificar para cada mensagem não lida' },
     { key: 'dealWon', label: 'Negócio ganho', desc: 'Notificar quando um deal for marcado como Ganho' },
