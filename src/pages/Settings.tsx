@@ -8,6 +8,13 @@ import {
 
 type SettingsTab = 'integrations' | 'users' | 'tools' | 'general';
 
+interface NotificationSettings {
+  newLead: boolean;
+  newMessage: boolean;
+  dealWon: boolean;
+  dailyReport: boolean;
+}
+
 interface Integration {
   id: string;
   name: string;
@@ -131,7 +138,7 @@ export default function Settings() {
   const [inviteRole, setInviteRole] = useState<TeamUser['role']>('agent');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [openAiKey, setOpenAiKey] = useState('');
-  const [notifications, setNotifications] = useState({ newLead: true, newMessage: true, dealWon: true, dailyReport: false });
+  const [notifications, setNotifications] = useState<NotificationSettings>({ newLead: true, newMessage: true, dealWon: true, dailyReport: false });
   const [generalSettings, setGeneralSettings] = useState({ businessName: 'Minha Empresa', timezone: 'America/Sao_Paulo', language: 'pt-BR', businessHours: true });
 
   const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -441,8 +448,8 @@ interface ToolsTabProps {
   setWebhookUrl: (v: string) => void;
   openAiKey: string;
   setOpenAiKey: (v: string) => void;
-  notifications: Record<string, boolean>;
-  setNotifications: (v: Record<string, boolean>) => void;
+  notifications: NotificationSettings;
+  setNotifications: (v: NotificationSettings) => void;
 }
 
 function ToolsTab({ webhookUrl, setWebhookUrl, openAiKey, setOpenAiKey, notifications, setNotifications }: ToolsTabProps) {
