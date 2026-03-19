@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, Copy, Edit2, Trash2, Search, FileText, X, Check } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, Copy, Edit2, Trash2, Search, FileText, X, Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { templates as initialTemplates } from '../data/mockData';
 import type { MessageTemplate, TemplateCategory } from '../types';
 
@@ -22,6 +22,21 @@ const EMPTY: Omit<MessageTemplate, 'id' | 'usageCount' | 'createdAt'> = {
   name: '', category: 'custom', content: '', variables: [],
 };
 
+const AVAILABLE_VARS: { key: string; label: string; example: string }[] = [
+  { key: 'nome',       label: 'Nome',           example: 'João Silva' },
+  { key: 'empresa',    label: 'Empresa',         example: 'Acme Ltda' },
+  { key: 'telefone',   label: 'Telefone',        example: '(11) 99999-0000' },
+  { key: 'email',      label: 'E-mail',          example: 'joao@email.com' },
+  { key: 'produto',    label: 'Produto',         example: 'Plano Pro' },
+  { key: 'valor',      label: 'Valor',           example: 'R$ 1.200,00' },
+  { key: 'data',       label: 'Data',            example: '19/03/2026' },
+  { key: 'vendedor',   label: 'Vendedor',        example: 'Maria Santos' },
+  { key: 'link',       label: 'Link',            example: 'https://...' },
+  { key: 'cidade',     label: 'Cidade',          example: 'São Paulo' },
+  { key: 'prazo',      label: 'Prazo',           example: '7 dias' },
+  { key: 'desconto',   label: 'Desconto',        example: '10%' },
+];
+
 function highlightVars(text: string) {
   const parts = text.split(/({{[^}]+}})/g);
   return parts.map((p, i) =>
@@ -40,12 +55,35 @@ export default function Templates() {
   const [form, setForm] = useState(EMPTY);
   const [copied, setCopied] = useState<string | null>(null);
   const [preview, setPreview] = useState<MessageTemplate | null>(null);
+  const [showVars, setShowVars] = useState(true);
+  const [hoveredVar, setHoveredVar] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const filtered = templates.filter(t => {
     const matchSearch = t.name.toLowerCase().includes(search.toLowerCase()) || t.content.toLowerCase().includes(search.toLowerCase());
     const matchCat = catFilter === 'all' || t.category === catFilter;
     return matchSearch && matchCat;
   });
+
+  const insertVar = (key: string) => {
+    const tag = `{{${key}}}`;
+    const el = textareaRef.current;
+    if (!el) {
+      setForm(f => ({ ...f, content: f.content + tag }));
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const before = el.value.slice(0, start);
+    const after = el.value.slice(end);
+    const newContent = before + tag + after;
+    setForm(f => ({ ...f, content: newContent }));
+    // restore cursor after tag
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + tag.length, start + tag.length);
+    });
+  };
 
   const extractVars = (content: string) => {
     const matches = content.match(/{{([^}]+)}}/g) || [];
@@ -195,11 +233,54 @@ export default function Templates() {
                   </select>
                 </div>
               </div>
+              {/* Variables panel */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowVars(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Campos personalizados disponíveis</span>
+                    <span className="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full font-medium">{AVAILABLE_VARS.length}</span>
+                  </div>
+                  {showVars ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                </button>
+                {showVars && (
+                  <div className="p-3 border-t border-gray-100">
+                    <p className="text-xs text-gray-400 mb-2.5">Clique para inserir no cursor do texto ↓</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AVAILABLE_VARS.map(v => (
+                        <div key={v.key} className="relative">
+                          <button
+                            type="button"
+                            onClick={() => insertVar(v.key)}
+                            onMouseEnter={() => setHoveredVar(v.key)}
+                            onMouseLeave={() => setHoveredVar(null)}
+                            className="group flex items-center gap-1 bg-white border border-gray-200 hover:border-primary-400 hover:bg-primary-50 rounded-lg px-2.5 py-1.5 transition-all"
+                          >
+                            <span className="text-xs font-mono text-primary-600 font-semibold group-hover:text-primary-700">{`{{${v.key}}}`}</span>
+                            <span className="text-xs text-gray-400 group-hover:text-gray-500">· {v.label}</span>
+                          </button>
+                          {hoveredVar === v.key && (
+                            <div className="absolute bottom-full left-0 mb-1.5 z-10 bg-gray-900 text-white text-xs px-2 py-1 rounded-lg whitespace-nowrap shadow-lg">
+                              Ex: <span className="text-gray-300">{v.example}</span>
+                              <div className="absolute top-full left-3 border-4 border-transparent border-t-gray-900" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Conteúdo * <span className="font-normal text-gray-400 text-xs">(use {'{{variavel}}'} para personalizar)</span>
                 </label>
                 <textarea
+                  ref={textareaRef}
                   value={form.content}
                   onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
                   rows={6}
