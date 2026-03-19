@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import Sidebar from './components/Sidebar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -27,21 +26,29 @@ const PAGE_TITLES: Record<Page, string> = {
   settings: 'Configurações',
 };
 
+const DEMO_STORAGE_KEY = 'flowcrm_demo_auth';
+
 export default function App() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined); // undefined = loading
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null); // null = loading
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-    });
+    if (!isSupabaseConfigured) {
+      // Demo mode — check localStorage
+      const saved = localStorage.getItem(DEMO_STORAGE_KEY);
+      setIsLoggedIn(saved === '1');
+      return;
+    }
 
-    // Listen for auth changes
+    // Real Supabase auth
+    supabase.auth.getSession().then(({ data }) => {
+      setIsLoggedIn(!!data.session);
+    }).catch(() => setIsLoggedIn(false));
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      setIsLoggedIn(!!session);
     });
 
     return () => subscription.unsubscribe();
@@ -52,12 +59,19 @@ export default function App() {
     if (channelId !== undefined) setSelectedChannelId(channelId);
   };
 
+  const handleLogin = () => setIsLoggedIn(true);
+
   const handleLogout = async () => {
+    if (!isSupabaseConfigured) {
+      localStorage.removeItem(DEMO_STORAGE_KEY);
+      setIsLoggedIn(false);
+      return;
+    }
     await supabase.auth.signOut();
   };
 
   // Loading state while checking auth
-  if (session === undefined) {
+  if (isLoggedIn === null) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 size={32} className="animate-spin text-primary-600" />
@@ -66,8 +80,8 @@ export default function App() {
   }
 
   // Not logged in → show login page
-  if (!session) {
-    return <Login />;
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} />;
   }
 
   const renderPage = () => {

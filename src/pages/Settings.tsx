@@ -550,7 +550,11 @@ function ToolsTab({ webhookUrl, setWebhookUrl, openAiKey, setOpenAiKey, notifica
                 <p className="text-xs text-gray-500">{item.desc}</p>
               </div>
               <button
-                onClick={() => setNotifications({ ...notifications, [item.key]: !notifications[item.key] })}
+                onClick={() => {
+                  const updated = { ...notifications } as NotificationSettings;
+                  updated[item.key] = !notifications[item.key];
+                  setNotifications(updated);
+                }}
                 className={`flex-shrink-0 transition-colors ${notifications[item.key] ? 'text-primary-600' : 'text-gray-300'}`}
               >
                 {notifications[item.key] ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}

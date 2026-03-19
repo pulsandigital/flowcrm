@@ -1,10 +1,18 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Zap, Mail, Lock, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
+
+const DEMO_EMAIL = 'admin@flowcrm.com';
+const DEMO_PASSWORD = 'admin123';
+const DEMO_STORAGE_KEY = 'flowcrm_demo_auth';
 
 type AuthView = 'login' | 'forgot';
 
-export default function Login() {
+interface Props {
+  onLogin: () => void;
+}
+
+export default function Login({ onLogin }: Props) {
   const [view, setView] = useState<AuthView>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,8 +25,23 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (!isSupabaseConfigured) {
+      // Demo mode
+      await new Promise(r => setTimeout(r, 600));
+      if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
+        localStorage.setItem(DEMO_STORAGE_KEY, '1');
+        onLogin();
+      } else {
+        setError(`Credenciais inválidas. Demo: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
+      }
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setError(translateError(error.message));
+    else onLogin();
     setLoading(false);
   };
 
@@ -26,6 +49,14 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (!isSupabaseConfigured) {
+      await new Promise(r => setTimeout(r, 600));
+      setSuccessMsg('Modo demo ativo. Use admin@flowcrm.com / admin123 para entrar.');
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}`,
     });
@@ -72,6 +103,13 @@ export default function Login() {
                 : 'Enviaremos um link de recuperação para o seu e-mail'}
             </p>
           </div>
+
+          {/* Demo badge */}
+          {!isSupabaseConfigured && (
+            <div className="mx-8 mt-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 text-center">
+              🧪 <strong>Modo Demo</strong> — use <code className="font-mono">admin@flowcrm.com</code> / <code className="font-mono">admin123</code>
+            </div>
+          )}
 
           {/* Form */}
           <div className="px-8 py-6">
