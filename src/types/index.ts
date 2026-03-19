@@ -10,6 +10,9 @@ export type Page =
   | 'settings';
 
 export type ChannelStatus = 'connected' | 'disconnected' | 'connecting';
+export type LeadSource = 'meta_ads' | 'instagram' | 'google_ads' | 'google_organic' | 'instagram_bio' | 'referral' | 'other';
+export type LossReason = 'price' | 'competitor' | 'no_budget' | 'no_interest' | 'no_response' | 'timing' | 'other';
+export type MessageType = 'text' | 'image' | 'audio' | 'internal';
 
 export interface WhatsAppChannel {
   id: string;
@@ -70,9 +73,15 @@ export interface Deal {
 export interface ChatMessage {
   id: string;
   content: string;
-  sender: 'user' | 'contact' | 'bot';
+  sender: 'user' | 'contact' | 'bot' | 'internal';
   timestamp: string;
   status: 'sent' | 'delivered' | 'read';
+  type?: MessageType;
+  imageUrl?: string;
+  isDeleted?: boolean;
+  isEdited?: boolean;
+  scheduledFor?: string;
+  internalAuthor?: string;
 }
 
 export interface Conversation {
@@ -88,6 +97,9 @@ export interface Conversation {
   tags: string[];
   inFlow: boolean;
   messages: ChatMessage[];
+  leadSource?: LeadSource;
+  lossReason?: LossReason;
+  lossReasonNote?: string;
 }
 
 export interface MessageTemplate {

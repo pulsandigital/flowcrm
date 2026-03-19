@@ -8,6 +8,7 @@ import Templates from './pages/Templates';
 import MessageFlow from './pages/MessageFlow';
 import Reports from './pages/Reports';
 import Channels from './pages/Channels';
+import Settings from './pages/Settings';
 import type { Page } from './types';
 import { Bell, Search } from 'lucide-react';
 
@@ -43,7 +44,7 @@ export default function App() {
       case 'flow': return <MessageFlow />;
       case 'reports': return <Reports />;
       case 'channels': return <Channels />;
-      case 'settings': return <SettingsPage />;
+      case 'settings': return <Settings />;
       default: return <Dashboard onNavigate={handleNavigate} />;
     }
   };
@@ -95,10 +96,3 @@ export default function App() {
   );
 }
 
-function SettingsPage() {
-  return (
-    <div className="p-8 max-w-2xl">
-      <p className="text-gray-500">Configurações em breve...</p>
-    </div>
-  );
-}
