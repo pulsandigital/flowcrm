@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, GitMerge, Users, MessageCircle,
   FileText, Workflow, BarChart2, Settings, Zap,
   ChevronLeft, ChevronRight, Smartphone, Plus, ChevronDown,
   Wifi, WifiOff, Loader2,
 } from 'lucide-react';
-import type { Page } from '../types';
-import { whatsappChannels } from '../data/mockData';
+import type { Page, WhatsAppChannel } from '../types';
+import { channelsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface Props {
   current: Page;
@@ -40,7 +41,21 @@ const STATUS_DOT: Record<string, string> = {
 
 export default function Sidebar({ current, onNavigate, collapsed, onToggle, selectedChannelId }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const loadChannels = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const data = await channelsDb.getAll();
+    setChannels(data);
+  }, []);
+
+  useEffect(() => { loadChannels(); }, [loadChannels]);
+
+  // Refresh channels when dropdown opens
+  useEffect(() => {
+    if (dropdownOpen) loadChannels();
+  }, [dropdownOpen, loadChannels]);
 
   // close dropdown when clicking outside
   useEffect(() => {
@@ -54,7 +69,7 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
   }, []);
 
   const activeChannel = selectedChannelId
-    ? whatsappChannels.find(c => c.id === selectedChannelId)
+    ? channels.find(c => c.id === selectedChannelId)
     : null;
 
   return (
@@ -127,12 +142,15 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
             >
               <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
               <span className="flex-1 truncate">Todos os funis</span>
-              <span className="text-xs text-gray-400">{whatsappChannels.reduce((n, _) => n, whatsappChannels.length)}</span>
+              <span className="text-xs text-gray-400">{channels.length}</span>
             </button>
 
             {/* channels */}
             <div className="max-h-56 overflow-y-auto">
-              {whatsappChannels.map(ch => {
+              {channels.length === 0 && (
+                <p className="text-xs text-gray-400 px-4 py-3 text-center">Nenhum funil. Clique em + para adicionar.</p>
+              )}
+              {channels.map(ch => {
                 const isActive = selectedChannelId === ch.id;
                 return (
                   <button

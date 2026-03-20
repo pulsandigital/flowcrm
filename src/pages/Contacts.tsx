@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { Plus, Search, Filter, Phone, Mail, MoreHorizontal, X, Edit2, Trash2 } from 'lucide-react';
-import { contacts as initialContacts, TEAM_MEMBERS } from '../data/mockData';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Search, Filter, Phone, Mail, MoreHorizontal, X, Edit2, Trash2, Loader2 } from 'lucide-react';
+import { TEAM_MEMBERS } from '../data/mockData';
+import { contactsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 import type { Contact, ContactStatus } from '../types';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
@@ -18,13 +20,23 @@ interface FormState { name: string; company: string; phone: string; email: strin
 const EMPTY_FORM: FormState = { name: '', company: '', phone: '', email: '', assignee: TEAM_MEMBERS[0], status: 'lead', tags: '' };
 
 export default function Contacts() {
-  const [contacts, setContacts] = useState<Contact[]>(initialContacts);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ContactStatus | 'all'>('all');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [menuId, setMenuId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    const data = await contactsDb.getAll();
+    setContacts(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered = contacts.filter(c => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -47,16 +59,19 @@ export default function Contacts() {
     setMenuId(null);
   };
 
-  const deleteContact = (id: string) => {
+  const deleteContact = async (id: string) => {
+    await contactsDb.delete(id);
     setContacts(prev => prev.filter(c => c.id !== id));
     setMenuId(null);
   };
 
-  const saveContact = () => {
+  const saveContact = async () => {
     if (!form.name) return;
     const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean);
     if (editing) {
-      setContacts(prev => prev.map(c => c.id === editing.id ? { ...c, ...form, tags } : c));
+      const updated = { ...editing, ...form, tags };
+      await contactsDb.upsert(updated);
+      setContacts(prev => prev.map(c => c.id === editing.id ? updated : c));
     } else {
       const nc: Contact = {
         id: `c${Date.now()}`, ...form, tags,
@@ -64,11 +79,18 @@ export default function Contacts() {
         createdAt: new Date().toISOString().split('T')[0],
         lastActivity: new Date().toISOString().split('T')[0],
       };
+      await contactsDb.upsert(nc);
       setContacts(prev => [nc, ...prev]);
     }
     setShowModal(false);
     setForm(EMPTY_FORM);
   };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-4">

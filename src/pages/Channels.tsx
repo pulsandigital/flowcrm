@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Smartphone, Plus, X, Wifi, WifiOff, RefreshCw, QrCode,
   MessageCircle, Users, Trash2, Edit2, GitMerge, Zap,
@@ -7,9 +7,10 @@ import {
 
 const EVOLUTION_API_URL = import.meta.env.VITE_EVOLUTION_API_URL as string | undefined;
 const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY as string | undefined;
-import { whatsappChannels as initialChannels } from '../data/mockData';
-import type { WhatsAppChannel, ChannelStatus } from '../types';
 import { TEAM_MEMBERS } from '../data/mockData';
+import { channelsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
+import type { WhatsAppChannel, ChannelStatus } from '../types';
 
 const STATUS_CONFIG: Record<ChannelStatus, { label: string; icon: React.ReactNode; style: string; dot: string }> = {
   connected: { label: 'Conectado', icon: <Wifi size={14} />, style: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
@@ -179,11 +180,22 @@ function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel
 }
 
 export default function Channels() {
-  const [channels, setChannels] = useState<WhatsAppChannel[]>(initialChannels);
+  const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<WhatsAppChannel | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [qrChannel, setQrChannel] = useState<WhatsAppChannel | null>(null);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    setLoading(true);
+    const data = await channelsDb.getAll();
+    setChannels(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => { setEditing(null); setForm(EMPTY_FORM); setShowModal(true); };
   const openEdit = (ch: WhatsAppChannel) => {
@@ -192,40 +204,54 @@ export default function Channels() {
     setShowModal(true);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!form.name || !form.number) return;
     if (editing) {
-      setChannels(prev => prev.map(c => c.id === editing.id ? { ...c, ...form } : c));
+      const updated = { ...editing, ...form };
+      await channelsDb.upsert(updated);
+      setChannels(prev => prev.map(c => c.id === editing.id ? updated : c));
       setShowModal(false);
     } else {
       const nc: WhatsAppChannel = {
         id: `ch${Date.now()}`, ...form, status: 'disconnected',
         leadsCount: 0, messagesCount: 0, createdAt: new Date().toISOString().split('T')[0],
       };
+      await channelsDb.upsert(nc);
       setChannels(prev => [...prev, nc]);
       setShowModal(false);
-      // Open QR Code immediately after creating a new channel
       setQrChannel(nc);
     }
   };
 
-  const deleteChannel = (id: string) => setChannels(prev => prev.filter(c => c.id !== id));
+  const deleteChannel = async (id: string) => {
+    await channelsDb.delete(id);
+    setChannels(prev => prev.filter(c => c.id !== id));
+  };
 
-  const connectChannel = (id: string) => {
+  const connectChannel = async (id: string) => {
     setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'connecting' as ChannelStatus } : c));
-    setTimeout(() => {
+    await channelsDb.updateStatus(id, 'connecting');
+    setTimeout(async () => {
       setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'connected' as ChannelStatus } : c));
+      await channelsDb.updateStatus(id, 'connected');
     }, 2000);
     setQrChannel(null);
   };
 
-  const disconnectChannel = (id: string) => {
+  const disconnectChannel = async (id: string) => {
     setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'disconnected' as ChannelStatus } : c));
+    await channelsDb.updateStatus(id, 'disconnected');
   };
 
   const totalConnected = channels.filter(c => c.status === 'connected').length;
   const totalLeads = channels.reduce((s, c) => s + c.leadsCount, 0);
   const totalMessages = channels.reduce((s, c) => s + c.messagesCount, 0);
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-6">

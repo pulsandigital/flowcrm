@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, MoreHorizontal, DollarSign, User, ChevronRight, ChevronLeft,
-  X, Search, AlignLeft, TrendingUp, MessageCircle,
+  X, Search, AlignLeft, TrendingUp, MessageCircle, Loader2,
 } from 'lucide-react';
-import { deals as initialDeals, TEAM_MEMBERS, whatsappChannels } from '../data/mockData';
+import { TEAM_MEMBERS } from '../data/mockData';
+import { dealsDb, channelsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 import type { Deal, DealStage } from '../types';
 
 /* ─── Funnel type ─────────────────────────────────────────────────────────── */
@@ -34,10 +36,9 @@ interface Props {
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function Pipeline({ selectedChannelId, onChannelChange, onOpenChat }: Props) {
-  const [deals, setDeals] = useState<Deal[]>(initialDeals);
-  const [funnels, setFunnels] = useState<Funnel[]>(
-    whatsappChannels.map(ch => ({ id: ch.id, name: ch.name, color: ch.color }))
-  );
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [funnels, setFunnels] = useState<Funnel[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeFunnelId, setActiveFunnelId] = useState<string | null>(selectedChannelId);
   const [funnelSearch, setFunnelSearch] = useState('');
   const [showAddFunnel, setShowAddFunnel] = useState(false);
@@ -45,6 +46,16 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<NewDeal>(EMPTY_DEAL);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    const [dealsData, channelsData] = await Promise.all([dealsDb.getAll(), channelsDb.getAll()]);
+    setDeals(dealsData);
+    setFunnels(channelsData.map(ch => ({ id: ch.id, name: ch.name, color: ch.color })));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   /* derived */
   const activeFunnel = funnels.find(f => f.id === activeFunnelId) ?? null;
@@ -77,18 +88,21 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
     selectFunnel(nf.id);
   };
 
-  const moveStage = (dealId: string, dir: 'prev' | 'next') => {
-    setDeals(prev => prev.map(d => {
+  const moveStage = async (dealId: string, dir: 'prev' | 'next') => {
+    const updated = deals.map(d => {
       if (d.id !== dealId) return d;
       const idx = STAGE_ORDER.indexOf(d.stage);
       const ni = dir === 'next' ? Math.min(idx + 1, STAGE_ORDER.length - 1) : Math.max(idx - 1, 0);
       return { ...d, stage: STAGE_ORDER[ni], updatedAt: new Date().toISOString().split('T')[0] };
-    }));
+    });
+    setDeals(updated);
+    const changed = updated.find(d => d.id === dealId);
+    if (changed) await dealsDb.upsert(changed);
   };
 
-  const addDeal = () => {
+  const addDeal = async () => {
     if (!form.title || !form.contactName) return;
-    const fid = activeFunnelId ?? funnels[0]?.id ?? whatsappChannels[0].id;
+    const fid = activeFunnelId ?? funnels[0]?.id ?? '';
     const nd: Deal = {
       id: `d${Date.now()}`, title: form.title, contactId: '', contactName: form.contactName,
       company: form.company, value: Number(form.value) || 0, stage: 'new',
@@ -97,12 +111,19 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
       updatedAt: new Date().toISOString().split('T')[0],
       channelId: fid,
     };
+    await dealsDb.upsert(nd);
     setDeals(prev => [nd, ...prev]);
     setForm(EMPTY_DEAL);
     setShowModal(false);
   };
 
   /* ── render ─────────────────────────────────────────────────────────────── */
+  if (loading) return (
+    <div className="flex items-center justify-center h-full">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
+
   return (
     <div className="flex h-full overflow-hidden">
 

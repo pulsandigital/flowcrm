@@ -1,11 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Paperclip, Smile, Search, MoreHorizontal,
   Bot, CheckCheck, Clock, Tag, User, Phone, ChevronDown,
   Mic, MicOff, Image, Calendar, Lock, Edit2, Trash2,
-  X, Check, AlertCircle, Info, MapPin, Square,
+  X, Check, AlertCircle, Info, MapPin, Square, Loader2,
 } from 'lucide-react';
-import { conversations as initialConvs, whatsappChannels, TEAM_MEMBERS } from '../data/mockData';
+import { TEAM_MEMBERS } from '../data/mockData';
+import { conversationsDb, messagesDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason } from '../types';
 
 interface Props {
@@ -182,20 +184,39 @@ function MessageBubble({
   );
 }
 
+// ── Empty state placeholder ───────────────────────────────────────────────────
+const EMPTY_CONV: Conversation = {
+  id: '', contact: { id: '', name: '', phone: '', email: '', company: '', tags: [], status: 'lead', assignee: '', createdAt: '', lastActivity: '', avatar: '' },
+  lastMessage: '', lastMessageTime: '', unreadCount: 0, status: 'open',
+  assignee: '', channel: 'whatsapp', channelId: '', tags: [], inFlow: false, messages: [],
+};
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Chat({ selectedChannelId, onChannelChange, initialContactName, onConversationOpened }: Props) {
-  const [conversations, setConversations] = useState<Conversation[]>(initialConvs);
-  const [selected, setSelected] = useState<Conversation>(initialConvs[0]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selected, setSelected] = useState<Conversation>(EMPTY_CONV);
+  const [loadingConvs, setLoadingConvs] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoadingConvs(false); return; }
+    const data = await conversationsDb.getAll();
+    setConversations(data);
+    if (data.length > 0) setSelected(data[0]);
+    setLoadingConvs(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   // Auto-select conversation when coming from Pipeline
   useEffect(() => {
-    if (!initialContactName) return;
+    if (!initialContactName || conversations.length === 0) return;
     const match = conversations.find(c =>
       c.contact.name.toLowerCase().includes(initialContactName.toLowerCase())
     );
     if (match) setSelected(match);
     onConversationOpened?.();
-  }, [initialContactName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialContactName, conversations]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ConvStatus | 'all'>('all');
@@ -208,7 +229,9 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
   const [rightTab, setRightTab] = useState<'info' | 'source' | 'loss'>('info');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeChannel = selectedChannelId ? whatsappChannels.find(c => c.id === selectedChannelId) : null;
+  const activeChannel = selectedChannelId
+    ? { id: selectedChannelId, name: '', color: '#7c3aed' }
+    : null;
 
   const filtered = conversations.filter(c => {
     const matchSearch = c.contact.name.toLowerCase().includes(search.toLowerCase());
@@ -223,8 +246,9 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     if (s) setSelected(s);
   };
 
-  const sendMessage = (type: 'text' | 'audio' | 'image' = 'text', scheduled?: string) => {
+  const sendMessage = async (type: 'text' | 'audio' | 'image' = 'text', scheduled?: string) => {
     if (!input.trim() && type === 'text') return;
+    if (!selected.id) return;
     const msg: ChatMessage = {
       id: `m${Date.now()}`,
       content: type === 'audio' ? '🎙 Áudio gravado' : type === 'image' ? 'Imagem' : input.trim(),
@@ -235,6 +259,8 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
       internalAuthor: isInternal ? 'Ana Lima' : undefined,
       scheduledFor: scheduled,
     };
+    await messagesDb.insert(selected.id, msg);
+    await conversationsDb.updateField(selected.id, 'last_message', msg.content);
     const updated = conversations.map(c =>
       c.id === selected.id
         ? { ...c, messages: [...c.messages, msg], lastMessage: msg.content, lastMessageTime: msg.timestamp, unreadCount: 0 }
@@ -246,7 +272,8 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     setIsRecording(false);
   };
 
-  const editMessage = (msgId: string, newContent: string) => {
+  const editMessage = async (msgId: string, newContent: string) => {
+    await messagesDb.update(msgId, { content: newContent, is_edited: true });
     const updated = conversations.map(c =>
       c.id === selected.id
         ? { ...c, messages: c.messages.map(m => m.id === msgId ? { ...m, content: newContent, isEdited: true } : m) }
@@ -255,7 +282,8 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     updateSelected(updated);
   };
 
-  const deleteMessage = (msgId: string) => {
+  const deleteMessage = async (msgId: string) => {
+    await messagesDb.update(msgId, { is_deleted: true });
     const updated = conversations.map(c =>
       c.id === selected.id
         ? { ...c, messages: c.messages.map(m => m.id === msgId ? { ...m, isDeleted: true, content: '' } : m) }
@@ -295,6 +323,12 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     if (!scheduleDate || !scheduleTime) return;
     sendMessage('text', `${scheduleDate} ${scheduleTime}`);
   };
+
+  if (loadingConvs) return (
+    <div className="flex items-center justify-center h-full">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
 
   return (
     <div className="flex h-full bg-white">
