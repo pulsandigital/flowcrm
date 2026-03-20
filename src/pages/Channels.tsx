@@ -44,24 +44,50 @@ function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel
     try {
       const headers = { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
 
-      // Create instance (ignore error if already exists)
-      await fetch(`${EVOLUTION_API_URL}/instance/create`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ instanceName, qrcode: true }),
+      // Step 1: Try to delete stale instance (ignore errors)
+      await fetch(`${EVOLUTION_API_URL}/instance/delete/${instanceName}`, {
+        method: 'DELETE', headers,
       }).catch(() => null);
 
-      // Connect and get QR
-      const res = await fetch(`${EVOLUTION_API_URL}/instance/connect/${instanceName}`, { headers });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      // Step 2: Create instance — Evolution API v2 returns QR in create response
+      const createRes = await fetch(`${EVOLUTION_API_URL}/instance/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+      });
 
-      if (data.base64) {
-        setQrBase64(data.base64);
+      if (!createRes.ok) {
+        const errText = await createRes.text().catch(() => '');
+        throw new Error(`Erro ao criar instância: HTTP ${createRes.status} ${errText}`);
+      }
+
+      const createData = await createRes.json();
+
+      // v2: QR comes in create response
+      const base64FromCreate =
+        createData?.qrcode?.base64 ||
+        createData?.hash?.base64 ||
+        createData?.base64;
+
+      if (base64FromCreate) {
+        setQrBase64(base64FromCreate);
+        setStatus('qr_ready');
+        startPolling();
+        return;
+      }
+
+      // Fallback: call /instance/connect (v1 style)
+      const connectRes = await fetch(`${EVOLUTION_API_URL}/instance/connect/${instanceName}`, { headers });
+      if (!connectRes.ok) throw new Error(`HTTP ${connectRes.status}`);
+      const connectData = await connectRes.json();
+
+      const base64 = connectData?.base64 || connectData?.qrcode?.base64 || connectData?.code;
+      if (base64) {
+        setQrBase64(base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`);
         setStatus('qr_ready');
         startPolling();
       } else {
-        throw new Error('QR code não retornado pela API');
+        throw new Error('QR code não retornado pela API. Verifique se a Evolution API está rodando.');
       }
     } catch (e: any) {
       setErrorMsg(e.message || 'Erro ao conectar com a Evolution API');
@@ -77,7 +103,8 @@ function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel
           headers: { 'apikey': EVOLUTION_API_KEY! },
         });
         const data = await res.json();
-        if (data.instance?.state === 'open') {
+        const state = data?.instance?.state ?? data?.state;
+        if (state === 'open') {
           clearPoll();
           setStatus('connected');
           setTimeout(() => { onConnect(); }, 1500);
