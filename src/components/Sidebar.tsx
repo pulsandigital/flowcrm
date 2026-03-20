@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import type { Page, WhatsAppChannel } from '../types';
 import { channelsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 interface Props {
   current: Page;
@@ -17,11 +17,11 @@ interface Props {
   selectedChannelId: string | null;
 }
 
-const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode; badge?: number }[] = [
+const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard',      icon: <LayoutDashboard size={20} /> },
   { id: 'pipeline',  label: 'Pipeline',        icon: <GitMerge size={20} /> },
   { id: 'contacts',  label: 'Contatos',        icon: <Users size={20} /> },
-  { id: 'chat',      label: 'Atendimento',     icon: <MessageCircle size={20} />, badge: 6 },
+  { id: 'chat',      label: 'Atendimento',     icon: <MessageCircle size={20} /> },
   { id: 'flow',      label: 'Fluxo de Msgs',   icon: <Workflow size={20} /> },
   { id: 'templates', label: 'Templates',       icon: <FileText size={20} /> },
   { id: 'reports',   label: 'Relatórios',      icon: <BarChart2 size={20} /> },
@@ -42,6 +42,9 @@ const STATUS_DOT: Record<string, string> = {
 export default function Sidebar({ current, onNavigate, collapsed, onToggle, selectedChannelId }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [userName, setUserName] = useState('Usuário');
+  const [userInitials, setUserInitials] = useState('U');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const loadChannels = useCallback(async () => {
@@ -50,7 +53,37 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
     setChannels(data);
   }, []);
 
-  useEffect(() => { loadChannels(); }, [loadChannels]);
+  const loadUnread = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const { data } = await supabase.from('conversations').select('unread_count').gt('unread_count', 0);
+    const total = (data ?? []).reduce((sum: number, r: any) => sum + (r.unread_count ?? 0), 0);
+    setUnreadCount(total);
+  }, []);
+
+  useEffect(() => { loadChannels(); loadUnread(); }, [loadChannels, loadUnread]);
+
+  // Load current user from auth
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    supabase.auth.getUser().then(({ data }) => {
+      const user = data?.user;
+      if (!user) return;
+      const email = user.email ?? '';
+      const meta = user.user_metadata ?? {};
+      const name = meta.full_name || meta.name || email.split('@')[0] || 'Usuário';
+      setUserName(name);
+      setUserInitials(name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase());
+    });
+  }, []);
+
+  // Realtime: update badge when conversations change
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const ch = supabase.channel('sidebar-unread')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => loadUnread())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [loadUnread]);
 
   // Refresh channels when dropdown opens
   useEffect(() => {
@@ -220,9 +253,9 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
             >
               <span className={active ? 'text-primary-600' : 'text-gray-500'}>{item.icon}</span>
               {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
-              {!collapsed && item.badge && item.badge > 0 && (
+              {!collapsed && item.id === 'chat' && unreadCount > 0 && (
                 <span className="bg-primary-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
-                  {item.badge}
+                  {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
             </button>
@@ -242,12 +275,12 @@ export default function Sidebar({ current, onNavigate, collapsed, onToggle, sele
         </button>
         <div className={`flex items-center gap-3 px-3 py-2.5 ${collapsed ? 'justify-center' : ''}`}>
           <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold text-sm flex-shrink-0">
-            AL
+            {userInitials}
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-800 truncate">Ana Lima</p>
-              <p className="text-xs text-gray-500 truncate">Administradora</p>
+              <p className="text-sm font-medium text-gray-800 truncate">{userName}</p>
+              <p className="text-xs text-gray-500 truncate">Administrador</p>
             </div>
           )}
         </div>

@@ -245,6 +245,17 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     return () => { supabase.removeChannel(msgChannel); };
   }, [isSupabaseConfigured, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // When channel filter changes, reset selected to first match (or empty)
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    if (selectedChannelId) {
+      const firstMatch = conversations.find(c => c.channelId === selectedChannelId);
+      setSelected(firstMatch ?? EMPTY_CONV);
+    } else {
+      setSelected(conversations[0] ?? EMPTY_CONV);
+    }
+  }, [selectedChannelId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-select conversation when coming from Pipeline
   useEffect(() => {
     if (!initialContactName || conversations.length === 0) return;
@@ -330,10 +341,14 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     updateSelected(updated);
   };
 
-  const selectConv = (conv: Conversation) => {
+  const selectConv = async (conv: Conversation) => {
     const updated = conversations.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c);
     updateSelected(updated);
     setSelected(updated.find(c => c.id === conv.id)!);
+    // Persist unread reset
+    if (conv.unreadCount > 0) {
+      await conversationsDb.updateField(conv.id, 'unread_count', 0);
+    }
   };
 
   const changeStatus = (status: ConvStatus) => {
@@ -433,7 +448,20 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
         </div>
       </div>
 
-      {/* ── Center: Chat Window ── */}
+      {/* ── Center: Chat Window or Empty State ── */}
+      {!selected.id ? (
+        <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <MessageCircle size={36} className="text-gray-300" />
+            </div>
+            <p className="text-gray-500 font-medium">Nenhuma conversa selecionada</p>
+            <p className="text-sm text-gray-400 mt-1">
+              {filtered.length === 0 ? 'Nenhuma conversa neste canal ainda' : 'Selecione uma conversa ao lado'}
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between bg-white flex-shrink-0">
@@ -679,6 +707,8 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
           )}
         </div>
       </div>
+      </div>
+      )}
     </div>
   );
 }
