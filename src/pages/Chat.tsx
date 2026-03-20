@@ -6,9 +6,9 @@ import {
   X, Check, AlertCircle, Info, MapPin, Square, Loader2,
 } from 'lucide-react';
 import { TEAM_MEMBERS } from '../data/mockData';
-import { conversationsDb, messagesDb } from '../lib/db';
+import { conversationsDb, messagesDb, channelsDb } from '../lib/db';
 import { isSupabaseConfigured } from '../lib/supabase';
-import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason } from '../types';
+import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason, WhatsAppChannel } from '../types';
 
 interface Props {
   selectedChannelId: string | null;
@@ -194,13 +194,15 @@ const EMPTY_CONV: Conversation = {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Chat({ selectedChannelId, onChannelChange, initialContactName, onConversationOpened }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
   const [selected, setSelected] = useState<Conversation>(EMPTY_CONV);
   const [loadingConvs, setLoadingConvs] = useState(true);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setLoadingConvs(false); return; }
-    const data = await conversationsDb.getAll();
+    const [data, chData] = await Promise.all([conversationsDb.getAll(), channelsDb.getAll()]);
     setConversations(data);
+    setChannels(chData);
     if (data.length > 0) setSelected(data[0]);
     setLoadingConvs(false);
   }, []);
@@ -340,7 +342,7 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
             <button onClick={() => onChannelChange(null)} className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${!selectedChannelId ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
               Todos
             </button>
-            {whatsappChannels.map(ch => (
+            {channels.map(ch => (
               <button key={ch.id} onClick={() => onChannelChange(ch.id)}
                 className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${selectedChannelId === ch.id ? '' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                 style={selectedChannelId === ch.id ? { borderBottomColor: ch.color, color: ch.color } : {}}

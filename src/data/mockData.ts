@@ -1,13 +1,13 @@
-import type { MessageFlow } from '../types';
+import type { Contact, Deal, Conversation, MessageTemplate, WhatsAppChannel, MessageFlow } from '../types';
 
 export const TEAM_MEMBERS = ['Ana Lima', 'Carlos Souza', 'Beatriz Costa', 'Rafael Mendes'];
 
 // All live data is stored in Supabase. These are empty defaults.
-export const whatsappChannels: never[] = [];
-export const contacts: never[] = [];
-export const deals: never[] = [];
-export const conversations: never[] = [];
-export const templates: never[] = [];
+export const whatsappChannels: WhatsAppChannel[] = [];
+export const contacts: Contact[] = [];
+export const deals: Deal[] = [];
+export const conversations: Conversation[] = [];
+export const templates: MessageTemplate[] = [];
 
 export const messageFlows: MessageFlow[] = [
   {

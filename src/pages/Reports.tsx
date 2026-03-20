@@ -1,18 +1,13 @@
+import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend, FunnelChart, Funnel, LabelList,
+  LineChart, Line, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Clock, Award, ArrowUpRight } from 'lucide-react';
-import { monthlyData, funnelData, deals, contacts, TEAM_MEMBERS } from '../data/mockData';
-
-const COLORS = ['#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd', '#10b981'];
-
-const teamPerf = TEAM_MEMBERS.map(member => ({
-  name: member.split(' ')[0],
-  deals: deals.filter(d => d.assignee === member && d.stage === 'won').length,
-  value: deals.filter(d => d.assignee === member && d.stage === 'won').reduce((s, d) => s + d.value, 0),
-  leads: contacts.filter(c => c.assignee === member).length,
-}));
+import { TrendingUp, Users, DollarSign, Clock, Award, ArrowUpRight, Loader2 } from 'lucide-react';
+import { TEAM_MEMBERS, funnelData as staticFunnelData } from '../data/mockData';
+import { dealsDb, contactsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
+import type { Deal, Contact } from '../types';
 
 const channelData = [
   { name: 'WhatsApp', value: 45, color: '#25D366' },
@@ -20,6 +15,38 @@ const channelData = [
   { name: 'Web Chat', value: 18, color: '#7c3aed' },
   { name: 'Email', value: 9, color: '#3b82f6' },
 ];
+
+const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+function buildMonthlyData(deals: Deal[]) {
+  const now = new Date();
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+    const m = d.getMonth();
+    const y = d.getFullYear();
+    const monthDeals = deals.filter(deal => {
+      const dd = new Date(deal.createdAt);
+      return dd.getMonth() === m && dd.getFullYear() === y;
+    });
+    return {
+      month: months[m],
+      leads: monthDeals.length,
+      conversions: monthDeals.filter(d => d.stage === 'won').length,
+      revenue: monthDeals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0),
+    };
+  });
+}
+
+function buildFunnelData(deals: Deal[]) {
+  const stages = [
+    { key: 'new', stage: 'Novo Lead', color: '#8b5cf6' },
+    { key: 'qualifying', stage: 'Qualificando', color: '#6d28d9' },
+    { key: 'proposal', stage: 'Proposta', color: '#5b21b6' },
+    { key: 'negotiation', stage: 'Negociação', color: '#4c1d95' },
+    { key: 'won', stage: 'Ganho', color: '#10b981' },
+  ];
+  return stages.map(s => ({ ...s, count: deals.filter(d => d.stage === s.key).length }));
+}
 
 function KPICard({ label, value, sub, icon, color }: { label: string; value: string; sub: string; icon: React.ReactNode; color: string }) {
   return (
@@ -37,14 +64,44 @@ function KPICard({ label, value, sub, icon, color }: { label: string; value: str
 }
 
 export default function Reports() {
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    const [d, c] = await Promise.all([dealsDb.getAll(), contactsDb.getAll()]);
+    setDeals(d);
+    setContacts(c);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
+
   const totalRevenue = deals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0);
-  const convRate = ((deals.filter(d => d.stage === 'won').length / deals.length) * 100).toFixed(0);
+  const wonCount = deals.filter(d => d.stage === 'won').length;
+  const convRate = deals.length > 0 ? ((wonCount / deals.length) * 100).toFixed(0) : '0';
+  const monthlyData = buildMonthlyData(deals);
+  const funnelData = deals.length > 0 ? buildFunnelData(deals) : staticFunnelData;
+
+  const teamPerf = TEAM_MEMBERS.map(member => ({
+    name: member.split(' ')[0],
+    deals: deals.filter(d => d.assignee === member && d.stage === 'won').length,
+    value: deals.filter(d => d.assignee === member && d.stage === 'won').reduce((s, d) => s + d.value, 0),
+    leads: contacts.filter(c => c.assignee === member).length,
+  }));
 
   return (
     <div className="p-6 space-y-6">
       {/* Period Selector */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Dados dos últimos 7 meses</p>
+        <p className="text-sm text-gray-500">Dados dos últimos 6 meses</p>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           {['7 dias', '30 dias', '3 meses', '6 meses', '1 ano'].map((p, i) => (
             <button key={p} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${i === 3 ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{p}</button>
@@ -54,10 +111,10 @@ export default function Reports() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KPICard label="Receita Total" value={`R$ ${(totalRevenue / 1000).toFixed(1)}k`} sub="+22% vs período anterior" icon={<DollarSign size={18} className="text-emerald-600" />} color="bg-emerald-50" />
-        <KPICard label="Total de Leads" value="234" sub="+31% vs período anterior" icon={<Users size={18} className="text-blue-600" />} color="bg-blue-50" />
-        <KPICard label="Taxa de Conversão" value={`${convRate}%`} sub="+4pp vs período anterior" icon={<TrendingUp size={18} className="text-primary-600" />} color="bg-primary-50" />
-        <KPICard label="Tempo Médio de Fechamento" value="18 dias" sub="-3 dias vs período anterior" icon={<Clock size={18} className="text-amber-600" />} color="bg-amber-50" />
+        <KPICard label="Receita Total" value={totalRevenue > 0 ? `R$ ${(totalRevenue / 1000).toFixed(1)}k` : 'R$ 0'} sub={wonCount > 0 ? `${wonCount} negócios ganhos` : 'Nenhum ganho ainda'} icon={<DollarSign size={18} className="text-emerald-600" />} color="bg-emerald-50" />
+        <KPICard label="Total de Leads" value={String(contacts.length)} sub={contacts.length > 0 ? `${contacts.filter(c => c.status === 'lead').length} leads ativos` : 'Nenhum contato ainda'} icon={<Users size={18} className="text-blue-600" />} color="bg-blue-50" />
+        <KPICard label="Taxa de Conversão" value={`${convRate}%`} sub={deals.length > 0 ? `${deals.length} negócios total` : 'Nenhum negócio ainda'} icon={<TrendingUp size={18} className="text-primary-600" />} color="bg-primary-50" />
+        <KPICard label="Tempo Médio de Fechamento" value="—" sub="Calculado com dados reais" icon={<Clock size={18} className="text-amber-600" />} color="bg-amber-50" />
       </div>
 
       {/* Charts Row 1 */}
@@ -65,18 +122,24 @@ export default function Reports() {
         {/* Revenue Line */}
         <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="font-semibold text-gray-800 mb-4">Receita x Leads por Mês</h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-              <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-              <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }} formatter={(v: number, name: string) => name === 'Receita' ? [`R$ ${v.toLocaleString('pt-BR')}`, name] : [v, name]} />
-              <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#7c3aed' }} name="Receita" />
-              <Line yAxisId="right" type="monotone" dataKey="leads" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981' }} name="Leads" strokeDasharray="5 5" />
-            </LineChart>
-          </ResponsiveContainer>
+          {deals.length === 0 ? (
+            <div className="h-[240px] flex items-center justify-center text-gray-400 text-sm">
+              Crie negócios no Pipeline para ver dados aqui
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
+                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }} formatter={(v: number, name: string) => name === 'Receita' ? [`R$ ${v.toLocaleString('pt-BR')}`, name] : [v, name]} />
+                <Legend />
+                <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#7c3aed' }} name="Receita" />
+                <Line yAxisId="right" type="monotone" dataKey="leads" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981' }} name="Leads" strokeDasharray="5 5" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* Channel Pie */}
@@ -109,32 +172,40 @@ export default function Reports() {
         {/* Funnel */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="font-semibold text-gray-800 mb-4">Funil de Vendas</h2>
-          <div className="space-y-2">
-            {funnelData.map((stage, i) => {
-              const maxCount = funnelData[0].count;
-              const pct = ((stage.count / maxCount) * 100).toFixed(0);
-              const conv = i > 0 ? ((stage.count / funnelData[i - 1].count) * 100).toFixed(0) : '100';
-              return (
-                <div key={stage.stage}>
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-gray-700 font-medium">{stage.stage}</span>
-                    <div className="flex items-center gap-3">
-                      {i > 0 && <span className="text-xs text-gray-400">Conv: {conv}%</span>}
-                      <span className="font-bold text-gray-900">{stage.count}</span>
+          {funnelData[0].count === 0 && deals.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              Crie negócios no Pipeline para ver o funil aqui
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {funnelData.map((stage, i) => {
+                const maxCount = funnelData[0].count || 1;
+                const pct = Math.round((stage.count / maxCount) * 100);
+                const conv = i > 0 && funnelData[i - 1].count > 0
+                  ? Math.round((stage.count / funnelData[i - 1].count) * 100)
+                  : i === 0 ? 100 : 0;
+                return (
+                  <div key={stage.stage}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-700 font-medium">{stage.stage}</span>
+                      <div className="flex items-center gap-3">
+                        {i > 0 && <span className="text-xs text-gray-400">Conv: {conv}%</span>}
+                        <span className="font-bold text-gray-900">{stage.count}</span>
+                      </div>
+                    </div>
+                    <div className="h-7 bg-gray-100 rounded-lg overflow-hidden">
+                      <div
+                        className="h-full rounded-lg flex items-center px-3 transition-all"
+                        style={{ width: `${pct || 0}%`, background: stage.color, minWidth: stage.count > 0 ? '2rem' : '0' }}
+                      >
+                        {pct > 10 && <span className="text-white text-xs font-semibold">{pct}%</span>}
+                      </div>
                     </div>
                   </div>
-                  <div className="h-7 bg-gray-100 rounded-lg overflow-hidden">
-                    <div
-                      className="h-full rounded-lg flex items-center px-3 transition-all"
-                      style={{ width: `${pct}%`, background: stage.color }}
-                    >
-                      <span className="text-white text-xs font-semibold">{pct}%</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Team Performance */}
