@@ -462,6 +462,7 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
           </div>
         </div>
       ) : (
+      <>
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between bg-white flex-shrink-0">
@@ -707,7 +708,7 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
           )}
         </div>
       </div>
-      </div>
+      </>
       )}
     </div>
   );
