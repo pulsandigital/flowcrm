@@ -3,7 +3,7 @@ import {
   Send, Paperclip, Smile, Search, MoreHorizontal,
   Bot, CheckCheck, Clock, Tag, User, Phone, ChevronDown,
   Mic, MicOff, Image, Calendar, Lock, Edit2, Trash2,
-  X, Check, AlertCircle, Info, MapPin, Square, Loader2,
+  X, Check, AlertCircle, Info, MapPin, Square, Loader2, MessageCircle,
 } from 'lucide-react';
 import { TEAM_MEMBERS } from '../data/mockData';
 import { conversationsDb, messagesDb, channelsDb } from '../lib/db';
