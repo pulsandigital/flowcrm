@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Users, Zap, MessageSquare, FileText, Settings as SettingsIcon,
   Bot, Link2, CheckCircle, AlertCircle, ChevronRight, Plus,
@@ -188,10 +188,21 @@ export default function Settings() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<TeamUser['role']>('agent');
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [openAiKey, setOpenAiKey] = useState('');
-  const [notifications, setNotifications] = useState<NotificationSettings>({ newLead: true, newMessage: true, dealWon: true, dailyReport: false });
-  const [generalSettings, setGeneralSettings] = useState({ businessName: 'Minha Empresa', timezone: 'America/Sao_Paulo', language: 'pt-BR', businessHours: true });
+  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('cfg_webhook') ?? '');
+  const [openAiKey, setOpenAiKey] = useState(() => localStorage.getItem('cfg_openai') ?? '');
+  const [notifications, setNotifications] = useState<NotificationSettings>(() => {
+    try { return JSON.parse(localStorage.getItem('cfg_notif') ?? '{}') as NotificationSettings; } catch { return { newLead: true, newMessage: true, dealWon: true, dailyReport: false }; }
+  });
+  const [generalSettings, setGeneralSettings] = useState<{ businessName: string; timezone: string; language: string; businessHours: boolean }>(() => {
+    const defaults = { businessName: 'Minha Empresa', timezone: 'America/Sao_Paulo', language: 'pt-BR', businessHours: true };
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem('cfg_general') ?? '{}') }; } catch { return defaults; }
+  });
+
+  // Persist to localStorage whenever settings change
+  useEffect(() => { localStorage.setItem('cfg_webhook', webhookUrl); }, [webhookUrl]);
+  useEffect(() => { localStorage.setItem('cfg_openai', openAiKey); }, [openAiKey]);
+  useEffect(() => { localStorage.setItem('cfg_notif', JSON.stringify(notifications)); }, [notifications]);
+  useEffect(() => { localStorage.setItem('cfg_general', JSON.stringify(generalSettings)); }, [generalSettings]);
 
   const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'integrations', label: 'Integrações', icon: <Link2 size={16} /> },

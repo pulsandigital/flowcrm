@@ -77,7 +77,7 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
     setSelectedDeal(null);
   };
 
-  const addFunnel = () => {
+  const addFunnel = async () => {
     const name = newFunnelName.trim();
     if (!name) return;
     const color = FUNNEL_COLORS[funnels.length % FUNNEL_COLORS.length];
@@ -86,6 +86,14 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
     setNewFunnelName('');
     setShowAddFunnel(false);
     selectFunnel(nf.id);
+    // Persist to Supabase as a WhatsApp channel record
+    if (isSupabaseConfigured) {
+      await channelsDb.upsert({
+        id: nf.id, name: nf.name, number: '', status: 'disconnected',
+        color: nf.color, assignee: '', leadsCount: 0, messagesCount: 0,
+        createdAt: new Date().toISOString(),
+      });
+    }
   };
 
   const moveStage = async (dealId: string, dir: 'prev' | 'next') => {

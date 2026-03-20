@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Contact, Deal, Conversation, ChatMessage, WhatsAppChannel, MessageTemplate } from '../types';
+import type { Contact, Deal, Conversation, ChatMessage, WhatsAppChannel, MessageTemplate, MessageFlow } from '../types';
 
 // ── WhatsApp Channels ─────────────────────────────────────────────────────────
 export const channelsDb = {
@@ -147,5 +147,32 @@ export const templatesDb = {
   },
   async delete(id: string) {
     await supabase.from('templates').delete().eq('id', id);
+  },
+};
+
+// ── Message Flows ──────────────────────────────────────────────────────────────
+export const flowsDb = {
+  async getAll(): Promise<MessageFlow[]> {
+    const { data } = await supabase.from('message_flows').select('*').order('created_at', { ascending: false });
+    return (data ?? []).map(r => ({
+      id: r.id, name: r.name, description: r.description ?? '',
+      isActive: r.is_active ?? false, trigger: r.trigger ?? '',
+      leadsCount: r.leads_count ?? 0, createdAt: r.created_at,
+      steps: r.steps ?? [],
+    }));
+  },
+  async upsert(f: MessageFlow) {
+    await supabase.from('message_flows').upsert({
+      id: f.id, name: f.name, description: f.description,
+      is_active: f.isActive, trigger: f.trigger,
+      leads_count: f.leadsCount, steps: f.steps,
+      created_at: f.createdAt,
+    });
+  },
+  async delete(id: string) {
+    await supabase.from('message_flows').delete().eq('id', id);
+  },
+  async updateActive(id: string, isActive: boolean) {
+    await supabase.from('message_flows').update({ is_active: isActive }).eq('id', id);
   },
 };

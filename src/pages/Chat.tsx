@@ -584,7 +584,12 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Responsável</p>
                 <select
                   value={selected.assignee}
-                  onChange={e => { const updated = conversations.map(c => c.id === selected.id ? { ...c, assignee: e.target.value } : c); updateSelected(updated); }}
+                  onChange={async e => {
+                    const val = e.target.value;
+                    const updated = conversations.map(c => c.id === selected.id ? { ...c, assignee: val } : c);
+                    updateSelected(updated);
+                    if (selected.id) await conversationsDb.updateField(selected.id, 'assignee', val);
+                  }}
                   className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {TEAM_MEMBERS.map(m => <option key={m}>{m}</option>)}

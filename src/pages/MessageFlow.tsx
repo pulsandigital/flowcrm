@@ -1,17 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Play, Pause, Edit2, Trash2, MessageSquare,
-  Clock, GitBranch, Zap, Square, ChevronDown, ChevronRight, X, Users
+  Clock, GitBranch, Zap, Square, ChevronDown, ChevronRight, X, Users, Loader2,
 } from 'lucide-react';
-import { messageFlows as initialFlows } from '../data/mockData';
+import { flowsDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 import type { MessageFlow, FlowStep, FlowStepType } from '../types';
 
 const STEP_CONFIG: Record<FlowStepType, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
-  message: { icon: <MessageSquare size={14} />, label: 'Mensagem', color: 'text-blue-600', bg: 'bg-blue-100' },
-  wait: { icon: <Clock size={14} />, label: 'Aguardar', color: 'text-amber-600', bg: 'bg-amber-100' },
-  condition: { icon: <GitBranch size={14} />, label: 'Condição', color: 'text-purple-600', bg: 'bg-purple-100' },
-  action: { icon: <Zap size={14} />, label: 'Ação', color: 'text-emerald-600', bg: 'bg-emerald-100' },
-  end: { icon: <Square size={14} />, label: 'Fim', color: 'text-gray-500', bg: 'bg-gray-100' },
+  message:   { icon: <MessageSquare size={14} />, label: 'Mensagem', color: 'text-blue-600',   bg: 'bg-blue-100' },
+  wait:      { icon: <Clock size={14} />,         label: 'Aguardar', color: 'text-amber-600',  bg: 'bg-amber-100' },
+  condition: { icon: <GitBranch size={14} />,     label: 'Condição', color: 'text-purple-600', bg: 'bg-purple-100' },
+  action:    { icon: <Zap size={14} />,           label: 'Ação',     color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  end:       { icon: <Square size={14} />,        label: 'Fim',      color: 'text-gray-500',   bg: 'bg-gray-100' },
 };
 
 function FlowStepNode({ step, index }: { step: FlowStep; index: number }) {
@@ -20,7 +21,7 @@ function FlowStepNode({ step, index }: { step: FlowStep; index: number }) {
 
   return (
     <div className="flex flex-col items-center">
-      <div className={`w-full max-w-sm bg-white border-2 rounded-xl p-4 transition-all hover:shadow-md hover:border-primary-200 cursor-pointer ${isLast ? 'border-gray-200' : 'border-gray-200'}`}>
+      <div className="w-full max-w-sm bg-white border-2 border-gray-200 rounded-xl p-4 transition-all hover:shadow-md hover:border-primary-200 cursor-pointer">
         <div className="flex items-start gap-3">
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bg}`}>
             <span className={cfg.color}>{cfg.icon}</span>
@@ -60,25 +61,51 @@ function FlowStepNode({ step, index }: { step: FlowStep; index: number }) {
   );
 }
 
-export default function MessageFlow() {
-  const [flows, setFlows] = useState<MessageFlow[]>(initialFlows);
-  const [selected, setSelected] = useState<MessageFlow | null>(initialFlows[0]);
+const TRIGGER_OPTIONS = [
+  'Primeira mensagem recebida',
+  'Lead criado manualmente',
+  'Tag adicionada ao contato',
+  'Formulário preenchido no site',
+  'Palavra-chave na mensagem',
+  'Proposta enviada',
+];
+
+export default function MessageFlowPage() {
+  const [flows, setFlows] = useState<MessageFlow[]>([]);
+  const [selected, setSelected] = useState<MessageFlow | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newFlowName, setNewFlowName] = useState('');
   const [newFlowDesc, setNewFlowDesc] = useState('');
-  const [newFlowTrigger, setNewFlowTrigger] = useState('Primeira mensagem recebida');
+  const [newFlowTrigger, setNewFlowTrigger] = useState(TRIGGER_OPTIONS[0]);
 
-  const toggleActive = (id: string) => {
-    setFlows(prev => prev.map(f => f.id === id ? { ...f, isActive: !f.isActive } : f));
-    if (selected?.id === id) setSelected(prev => prev ? { ...prev, isActive: !prev.isActive } : null);
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    const data = await flowsDb.getAll();
+    setFlows(data);
+    if (data.length > 0) setSelected(data[0]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleActive = async (id: string) => {
+    const updated = flows.map(f => f.id === id ? { ...f, isActive: !f.isActive } : f);
+    setFlows(updated);
+    const changed = updated.find(f => f.id === id);
+    if (changed) {
+      if (selected?.id === id) setSelected(changed);
+      if (isSupabaseConfigured) await flowsDb.updateActive(id, changed.isActive);
+    }
   };
 
-  const deleteFlow = (id: string) => {
+  const deleteFlow = async (id: string) => {
     setFlows(prev => prev.filter(f => f.id !== id));
     if (selected?.id === id) setSelected(flows.find(f => f.id !== id) || null);
+    if (isSupabaseConfigured) await flowsDb.delete(id);
   };
 
-  const createFlow = () => {
+  const createFlow = async () => {
     if (!newFlowName) return;
     const nf: MessageFlow = {
       id: `f${Date.now()}`, name: newFlowName, description: newFlowDesc,
@@ -94,16 +121,14 @@ export default function MessageFlow() {
     setShowCreateModal(false);
     setNewFlowName('');
     setNewFlowDesc('');
+    if (isSupabaseConfigured) await flowsDb.upsert(nf);
   };
 
-  const TRIGGER_OPTIONS = [
-    'Primeira mensagem recebida',
-    'Lead criado manualmente',
-    'Tag adicionada ao contato',
-    'Formulário preenchido no site',
-    'Palavra-chave na mensagem',
-    'Proposta enviada',
-  ];
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
 
   return (
     <div className="flex h-full">
@@ -115,7 +140,13 @@ export default function MessageFlow() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {flows.map(flow => (
+          {flows.length === 0 ? (
+            <div className="p-6 text-center text-gray-400">
+              <Zap size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Nenhum fluxo criado</p>
+              <p className="text-xs mt-1">Crie seu primeiro fluxo de automação</p>
+            </div>
+          ) : flows.map(flow => (
             <button
               key={flow.id}
               onClick={() => setSelected(flow)}
@@ -152,9 +183,6 @@ export default function MessageFlow() {
             <div className="flex items-center gap-2">
               <button onClick={() => deleteFlow(selected.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                 <Trash2 size={16} />
-              </button>
-              <button className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                <Edit2 size={14} /> Editar
               </button>
               <button
                 onClick={() => toggleActive(selected.id)}
@@ -205,11 +233,6 @@ export default function MessageFlow() {
               {selected.steps.map((step, i) => (
                 <FlowStepNode key={step.id} step={step} index={i} />
               ))}
-
-              {/* Add Step Button */}
-              <button className="mt-4 flex items-center gap-2 text-sm text-primary-600 border-2 border-dashed border-primary-300 rounded-xl px-6 py-3 hover:bg-primary-50 transition-colors w-full max-w-sm justify-center">
-                <Plus size={16} /> Adicionar Etapa
-              </button>
             </div>
           </div>
         </div>

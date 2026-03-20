@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
-import { Plus, Copy, Edit2, Trash2, Search, FileText, X, Check, ChevronDown, ChevronUp } from 'lucide-react';
-import { templates as initialTemplates } from '../data/mockData';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Plus, Copy, Edit2, Trash2, Search, FileText, X, Check, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { templatesDb } from '../lib/db';
+import { isSupabaseConfigured } from '../lib/supabase';
 import type { MessageTemplate, TemplateCategory } from '../types';
 
 const CAT_LABELS: Record<TemplateCategory, string> = {
@@ -47,7 +48,8 @@ function highlightVars(text: string) {
 }
 
 export default function Templates() {
-  const [templates, setTemplates] = useState<MessageTemplate[]>(initialTemplates);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState<TemplateCategory | 'all'>('all');
   const [showModal, setShowModal] = useState(false);
@@ -58,6 +60,15 @@ export default function Templates() {
   const [showVars, setShowVars] = useState(true);
   const [hoveredVar, setHoveredVar] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoading(false); return; }
+    const data = await templatesDb.getAll();
+    setTemplates(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered = templates.filter(t => {
     const matchSearch = t.name.toLowerCase().includes(search.toLowerCase()) || t.content.toLowerCase().includes(search.toLowerCase());
@@ -78,7 +89,6 @@ export default function Templates() {
     const after = el.value.slice(end);
     const newContent = before + tag + after;
     setForm(f => ({ ...f, content: newContent }));
-    // restore cursor after tag
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(start + tag.length, start + tag.length);
@@ -102,28 +112,40 @@ export default function Templates() {
     setShowModal(true);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!form.name || !form.content) return;
     const variables = extractVars(form.content);
     if (editing) {
-      setTemplates(prev => prev.map(t => t.id === editing.id ? { ...t, ...form, variables } : t));
+      const updated = { ...editing, ...form, variables };
+      setTemplates(prev => prev.map(t => t.id === editing.id ? updated : t));
+      if (isSupabaseConfigured) await templatesDb.upsert(updated);
     } else {
       const nt: MessageTemplate = {
         id: `t${Date.now()}`, ...form, variables,
         usageCount: 0, createdAt: new Date().toISOString().split('T')[0],
       };
       setTemplates(prev => [nt, ...prev]);
+      if (isSupabaseConfigured) await templatesDb.upsert(nt);
     }
     setShowModal(false);
   };
 
-  const deleteTemplate = (id: string) => setTemplates(prev => prev.filter(t => t.id !== id));
+  const deleteTemplate = async (id: string) => {
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    if (isSupabaseConfigured) await templatesDb.delete(id);
+  };
 
   const copyTemplate = (t: MessageTemplate) => {
     navigator.clipboard.writeText(t.content).catch(() => {});
     setCopied(t.id);
     setTimeout(() => setCopied(null), 2000);
   };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 size={32} className="animate-spin text-primary-500" />
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-4">
@@ -207,7 +229,8 @@ export default function Templates() {
         {filtered.length === 0 && (
           <div className="col-span-3 text-center py-16 text-gray-400">
             <FileText size={40} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Nenhum template encontrado</p>
+            <p className="text-sm font-medium">Nenhum template ainda</p>
+            <p className="text-xs mt-1">Clique em "Novo Template" para criar o primeiro</p>
           </div>
         )}
       </div>

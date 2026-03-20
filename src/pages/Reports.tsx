@@ -5,16 +5,33 @@ import {
 } from 'recharts';
 import { TrendingUp, Users, DollarSign, Clock, Award, ArrowUpRight, Loader2 } from 'lucide-react';
 import { TEAM_MEMBERS, funnelData as staticFunnelData } from '../data/mockData';
-import { dealsDb, contactsDb } from '../lib/db';
+import { dealsDb, contactsDb, conversationsDb } from '../lib/db';
 import { isSupabaseConfigured } from '../lib/supabase';
-import type { Deal, Contact } from '../types';
+import type { Deal, Contact, Conversation } from '../types';
 
-const channelData = [
-  { name: 'WhatsApp', value: 45, color: '#25D366' },
-  { name: 'Instagram', value: 28, color: '#E1306C' },
-  { name: 'Web Chat', value: 18, color: '#7c3aed' },
-  { name: 'Email', value: 9, color: '#3b82f6' },
-];
+const CHANNEL_COLORS: Record<string, string> = {
+  whatsapp: '#25D366', instagram: '#E1306C', webchat: '#7c3aed', email: '#3b82f6',
+};
+const CHANNEL_NAMES: Record<string, string> = {
+  whatsapp: 'WhatsApp', instagram: 'Instagram', webchat: 'Web Chat', email: 'Email',
+};
+
+function buildChannelData(conversations: Conversation[]) {
+  if (conversations.length === 0) return [
+    { name: 'WhatsApp', value: 0, color: '#25D366' },
+    { name: 'Instagram', value: 0, color: '#E1306C' },
+    { name: 'Web Chat', value: 0, color: '#7c3aed' },
+    { name: 'Email', value: 0, color: '#3b82f6' },
+  ];
+  const counts: Record<string, number> = {};
+  conversations.forEach(c => { counts[c.channel] = (counts[c.channel] || 0) + 1; });
+  const total = conversations.length;
+  return Object.entries(counts).map(([ch, count]) => ({
+    name: CHANNEL_NAMES[ch] ?? ch,
+    value: Math.round((count / total) * 100),
+    color: CHANNEL_COLORS[ch] ?? '#6b7280',
+  }));
+}
 
 const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -66,13 +83,15 @@ function KPICard({ label, value, sub, icon, color }: { label: string; value: str
 export default function Reports() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) { setLoading(false); return; }
-    const [d, c] = await Promise.all([dealsDb.getAll(), contactsDb.getAll()]);
+    const [d, c, cv] = await Promise.all([dealsDb.getAll(), contactsDb.getAll(), conversationsDb.getAll()]);
     setDeals(d);
     setContacts(c);
+    setConversations(cv);
     setLoading(false);
   }, []);
 
@@ -89,6 +108,7 @@ export default function Reports() {
   const convRate = deals.length > 0 ? ((wonCount / deals.length) * 100).toFixed(0) : '0';
   const monthlyData = buildMonthlyData(deals);
   const funnelData = deals.length > 0 ? buildFunnelData(deals) : staticFunnelData;
+  const channelData = buildChannelData(conversations);
 
   const teamPerf = TEAM_MEMBERS.map(member => ({
     name: member.split(' ')[0],
