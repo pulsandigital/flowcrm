@@ -7,6 +7,8 @@ import {
 
 const EVOLUTION_API_URL = import.meta.env.VITE_EVOLUTION_API_URL as string | undefined;
 const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const WEBHOOK_URL = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/whatsapp-webhook` : undefined;
 import { TEAM_MEMBERS } from '../data/mockData';
 import { channelsDb } from '../lib/db';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -70,6 +72,19 @@ function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel
         createData?.base64;
 
       if (base64FromCreate) {
+        // Configure webhook to receive incoming messages
+        if (WEBHOOK_URL) {
+          await fetch(`${EVOLUTION_API_URL}/webhook/set/${instanceName}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              url: WEBHOOK_URL,
+              webhook_by_events: true,
+              webhook_base64: false,
+              events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+            }),
+          }).catch(() => null);
+        }
         setQrBase64(base64FromCreate);
         setStatus('qr_ready');
         startPolling();

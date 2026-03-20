@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { TEAM_MEMBERS } from '../data/mockData';
 import { conversationsDb, messagesDb, channelsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason, WhatsAppChannel } from '../types';
 
 interface Props {
@@ -208,6 +208,42 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Supabase Realtime — listen for new messages and conversation updates
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const msgChannel = supabase
+      .channel('realtime-messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const msg = payload.new as any;
+        const newMessage: import('../types').ChatMessage = {
+          id: msg.id, content: msg.content, sender: msg.sender,
+          timestamp: msg.timestamp, status: msg.status ?? 'delivered',
+          type: msg.type ?? 'text', isDeleted: false, isEdited: false,
+          internalAuthor: msg.internal_author,
+        };
+        setConversations(prev => prev.map(c => {
+          if (c.id !== msg.conversation_id) return c;
+          const alreadyExists = c.messages.some(m => m.id === msg.id);
+          if (alreadyExists) return c;
+          return { ...c, messages: [...c.messages, newMessage], lastMessage: msg.content, lastMessageTime: msg.timestamp };
+        }));
+        setSelected(prev => {
+          if (prev.id !== msg.conversation_id) return prev;
+          const alreadyExists = prev.messages.some(m => m.id === msg.id);
+          if (alreadyExists) return prev;
+          return { ...prev, messages: [...prev.messages, newMessage], lastMessage: msg.content, lastMessageTime: msg.timestamp };
+        });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => {
+        // Reload conversations when a new one arrives
+        load();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(msgChannel); };
+  }, [isSupabaseConfigured, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select conversation when coming from Pipeline
   useEffect(() => {
