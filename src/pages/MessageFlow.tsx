@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
   Plus, Play, Pause, Edit2, Trash2, MessageSquare,
   Clock, GitBranch, Zap, Square, ChevronDown, ChevronRight, X, Users, Loader2,
 } from 'lucide-react';
-import { flowsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { useFlows, useUpsertFlow, useDeleteFlow, useToggleFlow } from '../hooks/useFlows';
+import { toast } from '../hooks/useToast';
 import type { MessageFlow, FlowStep, FlowStepType } from '../types';
 
 const STEP_CONFIG: Record<FlowStepType, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
@@ -71,38 +71,29 @@ const TRIGGER_OPTIONS = [
 ];
 
 export default function MessageFlowPage() {
-  const [flows, setFlows] = useState<MessageFlow[]>([]);
-  const [selected, setSelected] = useState<MessageFlow | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: flows = [], isLoading: loading } = useFlows();
+  const upsertFlow = useUpsertFlow();
+  const deleteFlowMutation = useDeleteFlow();
+  const toggleFlow = useToggleFlow();
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newFlowName, setNewFlowName] = useState('');
   const [newFlowDesc, setNewFlowDesc] = useState('');
   const [newFlowTrigger, setNewFlowTrigger] = useState(TRIGGER_OPTIONS[0]);
 
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return; }
-    const data = await flowsDb.getAll();
-    setFlows(data);
-    if (data.length > 0) setSelected(data[0]);
-    setLoading(false);
-  }, []);
+  // Derive selected from flows cache; auto-select first if none chosen
+  const selected = flows.find(f => f.id === selectedId) ?? flows[0] ?? null;
 
-  useEffect(() => { load(); }, [load]);
-
-  const toggleActive = async (id: string) => {
-    const updated = flows.map(f => f.id === id ? { ...f, isActive: !f.isActive } : f);
-    setFlows(updated);
-    const changed = updated.find(f => f.id === id);
-    if (changed) {
-      if (selected?.id === id) setSelected(changed);
-      if (isSupabaseConfigured) await flowsDb.updateActive(id, changed.isActive);
-    }
+  const handleToggleActive = async (id: string, currentIsActive: boolean) => {
+    await toggleFlow.mutateAsync({ id, isActive: !currentIsActive });
   };
 
-  const deleteFlow = async (id: string) => {
-    setFlows(prev => prev.filter(f => f.id !== id));
-    if (selected?.id === id) setSelected(flows.find(f => f.id !== id) || null);
-    if (isSupabaseConfigured) await flowsDb.delete(id);
+  const handleDelete = async (id: string) => {
+    await deleteFlowMutation.mutateAsync(id);
+    toast.success('Fluxo excluído');
+    // If deleted flow was selected, clear selection
+    if (selectedId === id) setSelectedId(null);
   };
 
   const createFlow = async () => {
@@ -116,12 +107,12 @@ export default function MessageFlowPage() {
         { id: 's2', type: 'end', label: 'Fim do Fluxo' },
       ],
     };
-    setFlows(prev => [nf, ...prev]);
-    setSelected(nf);
+    await upsertFlow.mutateAsync(nf);
+    toast.success('Fluxo criado', newFlowName);
+    setSelectedId(nf.id);
     setShowCreateModal(false);
     setNewFlowName('');
     setNewFlowDesc('');
-    if (isSupabaseConfigured) await flowsDb.upsert(nf);
   };
 
   if (loading) return (
@@ -149,7 +140,7 @@ export default function MessageFlowPage() {
           ) : flows.map(flow => (
             <button
               key={flow.id}
-              onClick={() => setSelected(flow)}
+              onClick={() => setSelectedId(flow.id)}
               className={`w-full text-left p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selected?.id === flow.id ? 'bg-primary-50 border-l-2 border-l-primary-600' : ''}`}
             >
               <div className="flex items-start justify-between gap-2 mb-1">
@@ -181,12 +172,13 @@ export default function MessageFlowPage() {
               <p className="text-sm text-gray-500">{selected.description}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => deleteFlow(selected.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+              <button onClick={() => handleDelete(selected.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                 <Trash2 size={16} />
               </button>
               <button
-                onClick={() => toggleActive(selected.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selected.isActive ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+                onClick={() => handleToggleActive(selected.id, selected.isActive)}
+                disabled={toggleFlow.isPending}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 ${selected.isActive ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
               >
                 {selected.isActive ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Ativar</>}
               </button>
@@ -273,7 +265,9 @@ export default function MessageFlowPage() {
             </div>
             <div className="flex gap-3 p-5 border-t border-gray-100">
               <button onClick={() => setShowCreateModal(false)} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition-colors">Cancelar</button>
-              <button onClick={createFlow} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors">Criar Fluxo</button>
+              <button onClick={createFlow} disabled={upsertFlow.isPending} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-60">
+                {upsertFlow.isPending ? 'Criando...' : 'Criar Fluxo'}
+              </button>
             </div>
           </div>
         </div>

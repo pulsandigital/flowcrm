@@ -1,17 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import {
-  Smartphone, Plus, X, Wifi, WifiOff, RefreshCw, QrCode,
+  Smartphone, Plus, X, Wifi, WifiOff, RefreshCw,
   MessageCircle, Users, Trash2, Edit2, GitMerge, Zap,
-  CheckCircle, AlertCircle, Loader2,
+  Loader2, QrCode,
 } from 'lucide-react';
 
-const EVOLUTION_API_URL = import.meta.env.VITE_EVOLUTION_API_URL as string | undefined;
-const EVOLUTION_API_KEY = import.meta.env.VITE_EVOLUTION_API_KEY as string | undefined;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const WEBHOOK_URL = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/whatsapp-webhook` : undefined;
-import { TEAM_MEMBERS } from '../data/mockData';
-import { channelsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { useTeamMembers } from '../hooks/useTeamMembers';
+import { useChannels, useUpsertChannel, useDeleteChannel, useUpdateChannelStatus } from '../hooks/useChannels';
+import { toast } from '../hooks/useToast';
+import { EvolutionQRCodeModal } from '../components/EvolutionQRCodeModal';
+import { evolutionApi } from '../lib/evolution';
 import type { WhatsAppChannel, ChannelStatus } from '../types';
 
 const STATUS_CONFIG: Record<ChannelStatus, { label: string; icon: React.ReactNode; style: string; dot: string }> = {
@@ -23,221 +21,19 @@ const STATUS_CONFIG: Record<ChannelStatus, { label: string; icon: React.ReactNod
 const CHANNEL_COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2', '#7c3aed', '#be185d'];
 
 interface FormState { name: string; number: string; assignee: string; color: string; }
-const EMPTY_FORM: FormState = { name: '', number: '', assignee: TEAM_MEMBERS[0], color: CHANNEL_COLORS[0] };
-
-type QRStatus = 'idle' | 'loading' | 'qr_ready' | 'connected' | 'error' | 'no_api';
-
-function QRCodeModal({ channel, onClose, onConnect }: { channel: WhatsAppChannel; onClose: () => void; onConnect: () => void }) {
-  const [status, setStatus] = useState<QRStatus>('idle');
-  const [qrBase64, setQrBase64] = useState<string>('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const instanceName = `flowcrm_${channel.id}`;
-
-  const clearPoll = () => { if (pollRef.current) clearInterval(pollRef.current); };
-
-  const fetchQR = async () => {
-    if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-      setStatus('no_api');
-      return;
-    }
-    setStatus('loading');
-    setErrorMsg('');
-    try {
-      const headers = { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
-
-      // Step 1: Try to delete stale instance (ignore errors)
-      await fetch(`${EVOLUTION_API_URL}/instance/delete/${instanceName}`, {
-        method: 'DELETE', headers,
-      }).catch(() => null);
-
-      // Step 2: Create instance — Evolution API v2 returns QR in create response
-      const createRes = await fetch(`${EVOLUTION_API_URL}/instance/create`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
-      });
-
-      if (!createRes.ok) {
-        const errText = await createRes.text().catch(() => '');
-        throw new Error(`Erro ao criar instância: HTTP ${createRes.status} ${errText}`);
-      }
-
-      const createData = await createRes.json();
-
-      // v2: QR comes in create response
-      const base64FromCreate =
-        createData?.qrcode?.base64 ||
-        createData?.hash?.base64 ||
-        createData?.base64;
-
-      if (base64FromCreate) {
-        // Configure webhook to receive incoming messages
-        if (WEBHOOK_URL) {
-          await fetch(`${EVOLUTION_API_URL}/webhook/set/${instanceName}`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              url: WEBHOOK_URL,
-              webhook_by_events: true,
-              webhook_base64: false,
-              events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-            }),
-          }).catch(() => null);
-        }
-        setQrBase64(base64FromCreate);
-        setStatus('qr_ready');
-        startPolling();
-        return;
-      }
-
-      // Fallback: call /instance/connect (v1 style)
-      const connectRes = await fetch(`${EVOLUTION_API_URL}/instance/connect/${instanceName}`, { headers });
-      if (!connectRes.ok) throw new Error(`HTTP ${connectRes.status}`);
-      const connectData = await connectRes.json();
-
-      const base64 = connectData?.base64 || connectData?.qrcode?.base64 || connectData?.code;
-      if (base64) {
-        setQrBase64(base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`);
-        setStatus('qr_ready');
-        startPolling();
-      } else {
-        throw new Error('QR code não retornado pela API. Verifique se a Evolution API está rodando.');
-      }
-    } catch (e: any) {
-      setErrorMsg(e.message || 'Erro ao conectar com a Evolution API');
-      setStatus('error');
-    }
-  };
-
-  const startPolling = () => {
-    clearPoll();
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${instanceName}`, {
-          headers: { 'apikey': EVOLUTION_API_KEY! },
-        });
-        const data = await res.json();
-        const state = data?.instance?.state ?? data?.state;
-        if (state === 'open') {
-          clearPoll();
-          setStatus('connected');
-          setTimeout(() => { onConnect(); }, 1500);
-        }
-      } catch { /* ignore poll errors */ }
-    }, 3000);
-  };
-
-  useEffect(() => {
-    fetchQR();
-    return () => clearPoll();
-  }, []);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <div>
-            <h2 className="font-semibold text-gray-900">Conectar WhatsApp</h2>
-            <p className="text-sm text-gray-500">{channel.name} · {channel.number}</p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
-        </div>
-
-        <div className="p-6 text-center">
-          {/* QR Display Area */}
-          <div className="w-52 h-52 bg-gray-50 rounded-xl mx-auto mb-4 flex items-center justify-center border-2 border-dashed border-gray-200 overflow-hidden">
-            {status === 'loading' && (
-              <div className="text-center">
-                <Loader2 size={36} className="text-primary-400 mx-auto mb-2 animate-spin" />
-                <p className="text-xs text-gray-400">Gerando QR Code...</p>
-              </div>
-            )}
-            {status === 'qr_ready' && qrBase64 && (
-              <img src={qrBase64} alt="QR Code WhatsApp" className="w-full h-full object-contain p-1" />
-            )}
-            {status === 'connected' && (
-              <div className="text-center">
-                <CheckCircle size={48} className="text-emerald-500 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-emerald-700">Conectado!</p>
-              </div>
-            )}
-            {status === 'error' && (
-              <div className="text-center px-3">
-                <AlertCircle size={32} className="text-red-400 mx-auto mb-2" />
-                <p className="text-xs text-red-500">{errorMsg}</p>
-              </div>
-            )}
-            {status === 'no_api' && (
-              <div className="text-center px-3">
-                <QrCode size={36} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">Configure a Evolution API para gerar o QR</p>
-              </div>
-            )}
-            {status === 'idle' && (
-              <Loader2 size={36} className="text-gray-300 animate-spin" />
-            )}
-          </div>
-
-          {/* Instructions */}
-          {status === 'qr_ready' && (
-            <div className="bg-blue-50 rounded-lg p-3 mb-4 text-left">
-              <p className="text-xs font-semibold text-blue-700 mb-1">Como escanear:</p>
-              <ol className="text-xs text-blue-600 space-y-1 list-decimal list-inside">
-                <li>Abra o WhatsApp no celular</li>
-                <li>Vá em Menu → Dispositivos Conectados</li>
-                <li>Toque em "Conectar dispositivo"</li>
-                <li>Aponte a câmera para o QR Code acima</li>
-              </ol>
-              <p className="text-xs text-blue-500 mt-2 flex items-center gap-1">
-                <RefreshCw size={10} className="animate-spin" /> Verificando conexão automaticamente...
-              </p>
-            </div>
-          )}
-
-          {status === 'no_api' && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-left">
-              <p className="text-xs font-semibold text-amber-700 mb-1">Configure a Evolution API</p>
-              <p className="text-xs text-amber-600 mb-2">Adicione as variáveis de ambiente no Vercel:</p>
-              <code className="block text-xs bg-amber-100 rounded p-2 text-amber-800 mb-1">VITE_EVOLUTION_API_URL</code>
-              <code className="block text-xs bg-amber-100 rounded p-2 text-amber-800">VITE_EVOLUTION_API_KEY</code>
-            </div>
-          )}
-
-          {status === 'error' && (
-            <button onClick={fetchQR} className="w-full border border-gray-300 text-gray-700 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors mb-3 flex items-center justify-center gap-2">
-              <RefreshCw size={14} /> Tentar novamente
-            </button>
-          )}
-
-          {status === 'no_api' && (
-            <button onClick={onConnect} className="w-full bg-gray-100 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-200 transition-colors">
-              Simular conexão (demo)
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+const EMPTY_FORM: FormState = { name: '', number: '', assignee: '', color: CHANNEL_COLORS[0] };
 
 export default function Channels() {
-  const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { memberNames } = useTeamMembers();
+  const { data: channels = [], isLoading: loading } = useChannels();
+  const upsertChannel = useUpsertChannel();
+  const deleteChannelMutation = useDeleteChannel();
+  const updateStatus = useUpdateChannelStatus();
+
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<WhatsAppChannel | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [qrChannel, setQrChannel] = useState<WhatsAppChannel | null>(null);
-
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return; }
-    setLoading(true);
-    const data = await channelsDb.getAll();
-    setChannels(data);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => { setEditing(null); setForm(EMPTY_FORM); setShowModal(true); };
   const openEdit = (ch: WhatsAppChannel) => {
@@ -250,39 +46,46 @@ export default function Channels() {
     if (!form.name || !form.number) return;
     if (editing) {
       const updated = { ...editing, ...form };
-      await channelsDb.upsert(updated);
-      setChannels(prev => prev.map(c => c.id === editing.id ? updated : c));
+      await upsertChannel.mutateAsync(updated);
+      toast.success('Canal atualizado', form.name);
       setShowModal(false);
     } else {
       const nc: WhatsAppChannel = {
         id: `ch${Date.now()}`, ...form, status: 'disconnected',
         leadsCount: 0, messagesCount: 0, createdAt: new Date().toISOString().split('T')[0],
       };
-      await channelsDb.upsert(nc);
-      setChannels(prev => [...prev, nc]);
+      await upsertChannel.mutateAsync(nc);
+      toast.success('Canal criado', form.name);
       setShowModal(false);
       setQrChannel(nc);
     }
   };
 
-  const deleteChannel = async (id: string) => {
-    await channelsDb.delete(id);
-    setChannels(prev => prev.filter(c => c.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      await evolutionApi.deleteInstance(id);
+    } catch {
+      // A instancia pode ja ter sido removida na Evolution.
+    }
+    await deleteChannelMutation.mutateAsync(id);
+    toast.success('Canal excluído');
   };
 
   const connectChannel = async (id: string) => {
-    setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'connecting' as ChannelStatus } : c));
-    await channelsDb.updateStatus(id, 'connecting');
-    setTimeout(async () => {
-      setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'connected' as ChannelStatus } : c));
-      await channelsDb.updateStatus(id, 'connected');
-    }, 2000);
+    await updateStatus.mutateAsync({ id, status: 'connected' });
+    toast.success('Canal conectado!');
     setQrChannel(null);
   };
 
   const disconnectChannel = async (id: string) => {
-    setChannels(prev => prev.map(c => c.id === id ? { ...c, status: 'disconnected' as ChannelStatus } : c));
-    await channelsDb.updateStatus(id, 'disconnected');
+    try {
+      await evolutionApi.deleteInstance(id);
+    } catch (error) {
+      toast.error('Falha ao desconectar', error instanceof Error ? error.message : String(error));
+      return;
+    }
+    await updateStatus.mutateAsync({ id, status: 'disconnected' });
+    toast.info('Canal desconectado');
   };
 
   const totalConnected = channels.filter(c => c.status === 'connected').length;
@@ -395,7 +198,7 @@ export default function Channels() {
                   <button onClick={() => openEdit(ch)} className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
                     <Edit2 size={16} />
                   </button>
-                  <button onClick={() => deleteChannel(ch.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                  <button onClick={() => handleDelete(ch.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -419,7 +222,7 @@ export default function Channels() {
       </div>
 
       {/* Integration Info */}
-      <div className="bg-gradient-to-br from-primary-50 to-blue-50 rounded-xl border border-primary-100 p-5">
+      <div className="channel-integration-info bg-gradient-to-br from-primary-50 to-blue-50 rounded-xl border border-primary-100 p-5">
         <h3 className="font-semibold text-gray-800 mb-1">🔌 Integração com WhatsApp Real</h3>
         <p className="text-sm text-gray-600 mb-3">Para conectar números reais de WhatsApp, você precisa de uma das APIs abaixo:</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -459,7 +262,8 @@ export default function Channels() {
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Responsável</label>
                 <select value={form.assignee} onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                  {TEAM_MEMBERS.map(m => <option key={m}>{m}</option>)}
+                  <option value="">Selecionar...</option>
+                  {memberNames.map(m => <option key={m}>{m}</option>)}
                 </select>
               </div>
               <div>
@@ -478,8 +282,8 @@ export default function Channels() {
             </div>
             <div className="flex gap-3 p-5 border-t border-gray-100">
               <button onClick={() => setShowModal(false)} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition-colors">Cancelar</button>
-              <button onClick={save} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors">
-                {editing ? 'Salvar' : 'Adicionar Número'}
+              <button onClick={save} disabled={upsertChannel.isPending} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-60">
+                {upsertChannel.isPending ? 'Salvando...' : editing ? 'Salvar' : 'Adicionar Número'}
               </button>
             </div>
           </div>
@@ -488,7 +292,7 @@ export default function Channels() {
 
       {/* QR Code Modal */}
       {qrChannel && (
-        <QRCodeModal
+        <EvolutionQRCodeModal
           channel={qrChannel}
           onClose={() => setQrChannel(null)}
           onConnect={() => connectChannel(qrChannel.id)}

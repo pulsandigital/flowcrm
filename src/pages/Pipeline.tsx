@@ -1,368 +1,512 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
-  Plus, MoreHorizontal, DollarSign, User, ChevronRight, ChevronLeft,
-  X, Search, AlignLeft, TrendingUp, MessageCircle, Loader2,
+  AlertCircle, CalendarDays, Clock, DollarSign, Filter, Loader2, Mail,
+  MapPin, MoreVertical, Phone, Settings2, Tag, UserRound, X,
 } from 'lucide-react';
+import { useLeads, useUpdateLead } from '../hooks/useLeads';
+import type { Lead } from '../types';
 import { TEAM_MEMBERS } from '../data/mockData';
-import { dealsDb, channelsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
-import type { Deal, DealStage } from '../types';
 
-/* ─── Funnel type ─────────────────────────────────────────────────────────── */
-interface Funnel { id: string; name: string; color: string; }
-
-const FUNNEL_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#be185d','#0d9488'];
-
-/* ─── Stages ──────────────────────────────────────────────────────────────── */
-const STAGES: { id: DealStage; label: string; color: string; dot: string }[] = [
-  { id: 'new',         label: 'Novo Lead',    color: 'bg-slate-50',   dot: 'bg-slate-400' },
-  { id: 'qualifying',  label: 'Qualificando', color: 'bg-blue-50',    dot: 'bg-blue-400' },
-  { id: 'proposal',    label: 'Proposta',     color: 'bg-yellow-50',  dot: 'bg-yellow-400' },
-  { id: 'negotiation', label: 'Negociação',   color: 'bg-orange-50',  dot: 'bg-orange-400' },
-  { id: 'won',         label: 'Ganho ✅',     color: 'bg-emerald-50', dot: 'bg-emerald-400' },
-  { id: 'lost',        label: 'Perdido ❌',   color: 'bg-red-50',     dot: 'bg-red-400' },
+const STAGES = [
+  { id: 'Novo lead', color: 'bg-blue-400', dot: 'bg-blue-500' },
+  { id: 'Primeiro contato', color: 'bg-slate-400', dot: 'bg-slate-500' },
+  { id: 'Em atendimento', color: 'bg-primary-400', dot: 'bg-primary-500' },
+  { id: 'Qualificação', color: 'bg-indigo-400', dot: 'bg-indigo-500' },
+  { id: 'Proposta enviada', color: 'bg-violet-400', dot: 'bg-violet-500' },
+  { id: 'Follow-up', color: 'bg-amber-400', dot: 'bg-amber-500' },
+  { id: 'Fechado ganho', color: 'bg-teal-500', dot: 'bg-teal-600' },
+  { id: 'Fechado perdido', color: 'bg-red-400', dot: 'bg-red-500' },
 ];
-const STAGE_ORDER = STAGES.map(s => s.id);
 
-interface NewDeal { title: string; contactName: string; company: string; value: string; assignee: string; }
-const EMPTY_DEAL: NewDeal = { title: '', contactName: '', company: '', value: '', assignee: TEAM_MEMBERS[0] };
+const TEMP_ICON: Record<string, string> = { hot: '🔥', warm: '☀️', cold: '❄️' };
+const COLORS = ['bg-violet-500', 'bg-blue-500', 'bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-gold-500', 'bg-emerald-500'];
+const DEFAULT_VISIBLE_STAGES = STAGES.map(stage => stage.id);
 
-/* ─── Props ───────────────────────────────────────────────────────────────── */
-interface Props {
-  selectedChannelId: string | null;
-  onChannelChange: (id: string | null) => void;
-  onOpenChat?: (contactName: string, channelId: string) => void;
+const avatarColor = (name: string) => {
+  let hash = 0;
+  for (const char of name) hash = char.charCodeAt(0) + ((hash << 5) - hash);
+  return COLORS[Math.abs(hash) % COLORS.length];
+};
+const initials = (name: string) => name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase();
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+
+const isInsidePeriod = (dateValue: string, start: string, end: string) => {
+  if (!start && !end) return true;
+  const time = new Date(dateValue).getTime();
+  if (!Number.isFinite(time)) return false;
+  if (start && time < new Date(`${start}T00:00:00`).getTime()) return false;
+  if (end && time > new Date(`${end}T23:59:59`).getTime()) return false;
+  return true;
+};
+
+const sumValue = (items: Lead[]) => items.reduce((total, lead: any) => total + Number(lead.value ?? 0), 0);
+
+function KanbanCard({
+  lead,
+  onMove,
+  onOpen,
+  stages,
+}: {
+  lead: Lead & Record<string, any>;
+  onMove: (id: string, status: string) => void;
+  onOpen: (lead: Lead & Record<string, any>) => void;
+  stages: typeof STAGES;
+}) {
+  const [showMenu, setShowMenu] = useState(false);
+
+  return (
+    <div
+      className="kanban-card group relative cursor-grab active:cursor-grabbing"
+      draggable
+      onClick={() => onOpen(lead)}
+      onDragStart={event => {
+        event.dataTransfer.setData('text/plain', lead.id);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
+    >
+      <div className="flex items-start justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <div className={`avatar-sm ${avatarColor(lead.name)}`}>{initials(lead.name)}</div>
+          <div>
+            <div className="text-sm font-semibold text-slate-800 leading-tight">{lead.name}</div>
+            <div className="text-[11px] text-slate-500">{lead.specialty || lead.origin}</div>
+          </div>
+        </div>
+        <div className="relative">
+          <button
+            onClick={event => { event.stopPropagation(); setShowMenu(!showMenu); }}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <MoreVertical size={13} />
+          </button>
+          {showMenu && (
+            <div onClick={event => event.stopPropagation()} className="absolute right-0 top-6 z-20 bg-white rounded-xl shadow-lg border border-slate-100 py-1 min-w-[160px]">
+              {stages.filter(stage => stage.id !== lead.status).map(stage => (
+                <button
+                  key={stage.id}
+                  onClick={() => { onMove(lead.id, stage.id); setShowMenu(false); }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full ${stage.dot}`} />
+                  {stage.id}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-1.5 mb-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span>{lead.origin}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-slate-500 flex items-center gap-1">
+            <Clock size={10} />{new Date(lead.createdAt).toLocaleDateString('pt-BR')}
+          </span>
+          <span className="text-xs">{TEMP_ICON[lead.temperature]}</span>
+        </div>
+        <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+          <DollarSign size={10} className="text-teal-500" />
+          {formatCurrency(Number(lead.value ?? 0))}
+        </div>
+      </div>
+
+      {lead.tags && lead.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2.5">
+          {lead.tags.map((tag: string) => (
+            <span key={tag} className="badge badge-gray py-0.5 px-1.5 text-[10px] flex items-center gap-0.5">
+              <Tag size={8} />{tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
+        <div className="flex items-center gap-1.5">
+          <div className="h-1 w-16 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full ${lead.score >= 80 ? 'bg-teal-500' : lead.score >= 60 ? 'bg-amber-400' : 'bg-slate-300'}`}
+              style={{ width: `${lead.score}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-slate-500">{lead.score}</span>
+        </div>
+        {lead.responsible && (
+          <div className="w-5 h-5 rounded-full bg-primary-100 flex items-center justify-center text-[9px] font-bold text-primary-700">
+            {lead.responsible.split(' ').map((word: string) => word[0]).join('').slice(0, 2)}
+          </div>
+        )}
+        {lead.secondaryResponsible && (
+          <div className="w-5 h-5 rounded-full bg-teal-100 flex items-center justify-center text-[9px] font-bold text-teal-700" title={`Secundário: ${lead.secondaryResponsible}`}>
+            {lead.secondaryResponsible.split(' ').map((word: string) => word[0]).join('').slice(0, 2)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-/* ══════════════════════════════════════════════════════════════════════════ */
-export default function Pipeline({ selectedChannelId, onChannelChange, onOpenChat }: Props) {
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [funnels, setFunnels] = useState<Funnel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFunnelId, setActiveFunnelId] = useState<string | null>(selectedChannelId);
-  const [funnelSearch, setFunnelSearch] = useState('');
-  const [showAddFunnel, setShowAddFunnel] = useState(false);
-  const [newFunnelName, setNewFunnelName] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState<NewDeal>(EMPTY_DEAL);
-  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+function LeadDetailsModal({
+  lead,
+  stages,
+  onClose,
+  onMove,
+  onUpdateValue,
+}: {
+  lead: Lead & Record<string, any>;
+  stages: typeof STAGES;
+  onClose: () => void;
+  onMove: (id: string, status: string) => void;
+  onUpdateValue: (id: string, value: number) => void;
+}) {
+  const [value, setValue] = useState(String(lead.value ?? 0));
 
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return; }
-    const [dealsData, channelsData] = await Promise.all([dealsDb.getAll(), channelsDb.getAll()]);
-    setDeals(dealsData);
-    setFunnels(channelsData.map(ch => ({ id: ch.id, name: ch.name, color: ch.color })));
-    setLoading(false);
-  }, []);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-100 p-5">
+          <div className="flex items-center gap-3">
+            <div className={`avatar-lg ${avatarColor(lead.name)}`}>{initials(lead.name)}</div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">{lead.name}</h2>
+              <p className="text-sm text-slate-500">{lead.specialty || lead.origin || 'Lead comercial'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
 
-  useEffect(() => { load(); }, [load]);
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <div>
+            <label className="label">Etapa</label>
+            <select className="input" value={lead.status} onChange={event => onMove(lead.id, event.target.value)}>
+              {stages.map(stage => <option key={stage.id}>{stage.id}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Valor de fechamento</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={value}
+                onChange={event => setValue(event.target.value)}
+                placeholder="0,00"
+              />
+              <button className="btn-primary btn-sm" onClick={() => onUpdateValue(lead.id, Number(value || 0))}>Salvar</button>
+            </div>
+          </div>
 
-  /* derived */
-  const activeFunnel = funnels.find(f => f.id === activeFunnelId) ?? null;
-  const visibleDeals = activeFunnelId
-    ? deals.filter(d => d.channelId === activeFunnelId)
-    : deals;
-  const filteredFunnels = funnels.filter(f =>
-    f.name.toLowerCase().includes(funnelSearch.toLowerCase())
+          <div>
+            <label className="label">Temperatura</label>
+            <div className="input flex items-center">{TEMP_ICON[lead.temperature] || '-'} <span className="ml-2 capitalize">{lead.temperature || 'Não informada'}</span></div>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <Phone size={15} className="text-slate-400" />{lead.phone || 'Telefone não informado'}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <Mail size={15} className="text-slate-400" />{lead.email || 'E-mail não informado'}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <MapPin size={15} className="text-slate-400" />{lead.city || 'Cidade não informada'}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <UserRound size={15} className="text-slate-400" />{lead.responsible || lead.assignee || 'Responsável não informado'}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <UserRound size={15} className="text-teal-500" />{lead.secondaryResponsible || 'Profissional secundário não informado'}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-3 text-sm text-slate-600">
+            <Mail size={15} className="text-primary-500" />Fluxo WhatsApp: {lead.flowOwner || lead.responsible || 'não definido'}
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="label">Observações</label>
+            <div className="min-h-[96px] rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm whitespace-pre-wrap text-slate-700">
+              {lead.notes || 'Sem observações registradas.'}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end border-t border-slate-100 p-5">
+          <button onClick={onClose} className="btn-secondary btn-sm">Fechar</button>
+        </div>
+      </div>
+    </div>
   );
+}
 
-  /* stats */
-  const totalValue = visibleDeals.reduce((s, d) => s + d.value, 0);
-  const wonValue   = visibleDeals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0);
+export default function Pipeline() {
+  const { data: leads = [], isLoading, isError } = useLeads();
+  const updateMut = useUpdateLead();
+  const [dragOverStage, setDragOverStage] = useState('');
+  const [selectedLead, setSelectedLead] = useState<(Lead & Record<string, any>) | null>(null);
+  const [localStages, setLocalStages] = useState<Record<string, string>>({});
+  const [localValues, setLocalValues] = useState<Record<string, number>>({});
+  const [moveError, setMoveError] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
+  const [compareStart, setCompareStart] = useState('');
+  const [compareEnd, setCompareEnd] = useState('');
+  const [tempFilter, setTempFilter] = useState('Todos');
+  const [responsibleFilter, setResponsibleFilter] = useState('');
+  const [secondaryFilter, setSecondaryFilter] = useState('');
+  const [flowFilter, setFlowFilter] = useState('');
+  const [visibleStageIds, setVisibleStageIds] = useState<string[]>(DEFAULT_VISIBLE_STAGES);
 
-  /* handlers */
-  const selectFunnel = (id: string | null) => {
-    setActiveFunnelId(id);
-    onChannelChange(id);
-    setSelectedDeal(null);
-  };
+  const handleMove = async (id: string, newStatus: string) => {
+    const previousStatus = localStages[id] ?? leads.find((lead: any) => lead.id === id)?.status;
+    setMoveError('');
+    setLocalStages(prev => ({ ...prev, [id]: newStatus }));
+    setSelectedLead(prev => prev?.id === id ? { ...prev, status: newStatus, stage: newStatus } : prev);
 
-  const addFunnel = async () => {
-    const name = newFunnelName.trim();
-    if (!name) return;
-    const color = FUNNEL_COLORS[funnels.length % FUNNEL_COLORS.length];
-    const nf: Funnel = { id: `fn${Date.now()}`, name, color };
-    setFunnels(prev => [...prev, nf]);
-    setNewFunnelName('');
-    setShowAddFunnel(false);
-    selectFunnel(nf.id);
-    // Persist to Supabase as a WhatsApp channel record
-    if (isSupabaseConfigured) {
-      await channelsDb.upsert({
-        id: nf.id, name: nf.name, number: '', status: 'disconnected',
-        color: nf.color, assignee: '', leadsCount: 0, messagesCount: 0,
-        createdAt: new Date().toISOString(),
-      });
+    try {
+      await updateMut.mutateAsync({ id, data: { status: newStatus } });
+    } catch (error: any) {
+      setLocalStages(prev => ({ ...prev, [id]: previousStatus ?? 'Novo lead' }));
+      setSelectedLead(prev => prev?.id === id ? { ...prev, status: previousStatus ?? 'Novo lead', stage: previousStatus ?? 'Novo lead' } : prev);
+      setMoveError(error?.message ?? 'Não foi possível mover o lead.');
     }
   };
 
-  const moveStage = async (dealId: string, dir: 'prev' | 'next') => {
-    const updated = deals.map(d => {
-      if (d.id !== dealId) return d;
-      const idx = STAGE_ORDER.indexOf(d.stage);
-      const ni = dir === 'next' ? Math.min(idx + 1, STAGE_ORDER.length - 1) : Math.max(idx - 1, 0);
-      return { ...d, stage: STAGE_ORDER[ni], updatedAt: new Date().toISOString().split('T')[0] };
-    });
-    setDeals(updated);
-    const changed = updated.find(d => d.id === dealId);
-    if (changed) await dealsDb.upsert(changed);
+  const handleUpdateValue = async (id: string, value: number) => {
+    setMoveError('');
+    const previousValue = localValues[id] ?? Number(leads.find((lead: any) => lead.id === id)?.value ?? 0);
+    setLocalValues(prev => ({ ...prev, [id]: value }));
+    setSelectedLead(prev => prev?.id === id ? { ...prev, value } : prev);
+
+    try {
+      const lead = leads.find((item: any) => item.id === id);
+      await updateMut.mutateAsync({ id, data: { ...lead, value } });
+    } catch (error: any) {
+      setLocalValues(prev => ({ ...prev, [id]: previousValue }));
+      setSelectedLead(prev => prev?.id === id ? { ...prev, value: previousValue } : prev);
+      setMoveError(error?.message ?? 'Não foi possível atualizar o valor.');
+    }
   };
 
-  const addDeal = async () => {
-    if (!form.title || !form.contactName) return;
-    const fid = activeFunnelId ?? funnels[0]?.id ?? '';
-    const nd: Deal = {
-      id: `d${Date.now()}`, title: form.title, contactId: '', contactName: form.contactName,
-      company: form.company, value: Number(form.value) || 0, stage: 'new',
-      assignee: form.assignee, probability: 15,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
-      channelId: fid,
-    };
-    await dealsDb.upsert(nd);
-    setDeals(prev => [nd, ...prev]);
-    setForm(EMPTY_DEAL);
-    setShowModal(false);
-  };
+  const displayedLeads = leads.map((lead: any) => ({
+    ...lead,
+    status: localStages[lead.id] ?? lead.status,
+    value: localValues[lead.id] ?? Number(lead.value ?? 0),
+  }));
 
-  /* ── render ─────────────────────────────────────────────────────────────── */
-  if (loading) return (
-    <div className="flex items-center justify-center h-full">
-      <Loader2 size={32} className="animate-spin text-primary-500" />
-    </div>
+  const periodLeads = displayedLeads.filter((lead: any) =>
+    isInsidePeriod(lead.createdAt, periodStart, periodEnd)
+    && (tempFilter === 'Todos' || lead.temperature === tempFilter)
+    && (!responsibleFilter || lead.responsible === responsibleFilter)
+    && (!secondaryFilter || lead.secondaryResponsible === secondaryFilter)
+    && (!flowFilter || (lead.flowOwner || lead.responsible) === flowFilter)
   );
+  const comparisonLeads = displayedLeads.filter((lead: any) =>
+    isInsidePeriod(lead.createdAt, compareStart, compareEnd)
+    && (tempFilter === 'Todos' || lead.temperature === tempFilter)
+    && (!responsibleFilter || lead.responsible === responsibleFilter)
+    && (!secondaryFilter || lead.secondaryResponsible === secondaryFilter)
+    && (!flowFilter || (lead.flowOwner || lead.responsible) === flowFilter)
+  );
+  const visibleStages = STAGES.filter(stage => visibleStageIds.includes(stage.id));
+  const activeFilterCount = [periodStart || periodEnd, compareStart || compareEnd, tempFilter !== 'Todos', responsibleFilter, secondaryFilter, flowFilter, visibleStageIds.length !== STAGES.length].filter(Boolean).length;
+  const wonLeads = periodLeads.filter((lead: any) => lead.status === 'Fechado ganho');
+  const openLeads = periodLeads.filter((lead: any) => !['Fechado ganho', 'Fechado perdido'].includes(lead.status));
+  const comparisonWonLeads = comparisonLeads.filter((lead: any) => lead.status === 'Fechado ganho');
+  const openValue = sumValue(openLeads);
+  const wonValue = sumValue(wonLeads);
+  const comparisonWonValue = sumValue(comparisonWonLeads);
+
+  const toggleStageVisibility = (stageId: string) => {
+    setVisibleStageIds(prev => {
+      if (prev.includes(stageId)) return prev.filter(id => id !== stageId);
+      return [...prev, stageId];
+    });
+  };
+
+  const clearFilters = () => {
+    setPeriodStart('');
+    setPeriodEnd('');
+    setCompareStart('');
+    setCompareEnd('');
+    setTempFilter('Todos');
+    setResponsibleFilter('');
+    setSecondaryFilter('');
+    setFlowFilter('');
+    setVisibleStageIds(DEFAULT_VISIBLE_STAGES);
+  };
 
   return (
-    <div className="flex h-full overflow-hidden">
-
-      {/* ── LEFT FUNNEL SIDEBAR ─────────────────────────────────────────────── */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-hidden">
-
-        {/* header */}
-        <div className="px-4 py-3 border-b border-gray-100">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Leads</p>
-          <p className="text-xs text-gray-400 mt-0.5">{deals.length} negócios no total</p>
+    <div className="p-6 animate-slide-up">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Pipeline Comercial</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {isLoading ? 'Carregando...' : `${periodLeads.length} leads · ${wonLeads.length} fechados`}
+          </p>
         </div>
+        <button
+          className={`btn-secondary btn-sm ${showFilters || activeFilterCount ? 'ring-2 ring-primary-100 text-primary-700' : ''}`}
+          onClick={() => setShowFilters(prev => !prev)}
+        >
+          <Filter size={14} /> Filtros
+          {activeFilterCount > 0 && <span className="ml-1 rounded-full bg-primary-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{activeFilterCount}</span>}
+        </button>
+      </div>
 
-        {/* search */}
-        <div className="px-3 pt-2 pb-1">
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={funnelSearch}
-              onChange={e => setFunnelSearch(e.target.value)}
-              placeholder="Buscar funil..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-400 bg-gray-50"
-            />
+      {showFilters && (
+        <div className="card p-4 mb-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Filtros do pipeline</h3>
+              <p className="text-xs text-slate-500">Filtre por período, compare resultados e escolha quais colunas aparecem.</p>
+            </div>
+            <button onClick={clearFilters} className="btn-secondary btn-sm">Limpar filtros</button>
           </div>
-        </div>
 
-        {/* funnels list */}
-        <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
-          {filteredFunnels.map(funnel => {
-            const count  = deals.filter(d => d.channelId === funnel.id).length;
-            const isActive = activeFunnelId === funnel.id;
-            return (
-              <button
-                key={funnel.id}
-                onClick={() => selectFunnel(funnel.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all group ${
-                  isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: funnel.color }} />
-                <span
-                  className={`text-sm flex-1 truncate ${isActive ? 'font-semibold' : 'font-medium'}`}
-                  style={isActive ? { color: funnel.color } : {}}
-                >
-                  {funnel.name}
-                </span>
-                {count > 0 && (
-                  <span className={`text-xs rounded-full px-1.5 py-0.5 font-medium flex-shrink-0 ${
-                    isActive ? 'text-primary-600 bg-primary-100' : 'text-gray-400 bg-gray-100'
-                  }`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {filteredFunnels.length === 0 && funnelSearch && (
-            <p className="text-xs text-gray-400 px-3 py-4 text-center">Nenhum funil encontrado</p>
-          )}
-        </div>
-
-        {/* add funnel */}
-        <div className="px-3 py-2 border-t border-gray-100">
-          {showAddFunnel ? (
-            <div className="space-y-1.5">
-              <input
-                autoFocus
-                value={newFunnelName}
-                onChange={e => setNewFunnelName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addFunnel(); if (e.key === 'Escape') { setShowAddFunnel(false); setNewFunnelName(''); } }}
-                placeholder="Nome do funil..."
-                className="w-full text-xs border border-primary-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-400"
-              />
-              <div className="flex gap-1.5">
-                <button onClick={addFunnel} className="flex-1 bg-primary-600 text-white text-xs rounded-lg py-1.5 font-medium hover:bg-primary-700 transition-colors">Criar</button>
-                <button onClick={() => { setShowAddFunnel(false); setNewFunnelName(''); }} className="flex-1 border border-gray-300 text-gray-600 text-xs rounded-lg py-1.5 hover:bg-gray-50 transition-colors">Cancelar</button>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_220px]">
+            <div className="rounded-xl border border-slate-100 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700"><CalendarDays size={13} /> Período principal</div>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" className="input" value={periodStart} onChange={event => setPeriodStart(event.target.value)} />
+                <input type="date" className="input" value={periodEnd} onChange={event => setPeriodEnd(event.target.value)} />
               </div>
             </div>
-          ) : (
-            <button
-              onClick={() => setShowAddFunnel(true)}
-              className="w-full flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary-600 py-1.5 rounded-lg hover:bg-primary-50 px-2 transition-colors"
-            >
-              <Plus size={13} /> Adicionar funil de vendas
-            </button>
-          )}
-        </div>
-
-        {/* todos os leads */}
-        <div className="border-t border-gray-200 px-3 py-2">
-          <button
-            onClick={() => selectFunnel(null)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-              !activeFunnelId ? 'bg-gray-100 text-gray-900 font-semibold' : 'text-gray-500 hover:bg-gray-50'
-            }`}
-          >
-            <AlignLeft size={14} />
-            <span>Todos os leads</span>
-            <span className="ml-auto text-xs text-gray-400">{deals.length}</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* ── MAIN KANBAN AREA ────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-        {/* top bar */}
-        <div className="bg-white border-b border-gray-100 px-5 py-2.5 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-5 text-sm">
-            {activeFunnel ? (
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: activeFunnel.color }} />
-                <span className="font-semibold text-gray-800">{activeFunnel.name}</span>
+            <div className="rounded-xl border border-slate-100 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700"><CalendarDays size={13} /> Período de comparação</div>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" className="input" value={compareStart} onChange={event => setCompareStart(event.target.value)} />
+                <input type="date" className="input" value={compareEnd} onChange={event => setCompareEnd(event.target.value)} />
               </div>
-            ) : (
-              <span className="font-semibold text-gray-800">Todos os funis</span>
-            )}
-            <div className="flex items-center gap-1 text-gray-400">
-              <TrendingUp size={14} />
-              <span>Pipeline: <strong className="text-gray-700">R$ {totalValue.toLocaleString('pt-BR')}</strong></span>
             </div>
-            <span className="text-gray-400">
-              Ganho: <strong className="text-emerald-600">R$ {wonValue.toLocaleString('pt-BR')}</strong>
-            </span>
-            <span className="text-gray-400">{visibleDeals.length} negócio{visibleDeals.length !== 1 ? 's' : ''}</span>
+            <div>
+              <label className="label">Temperatura</label>
+              <select className="input" value={tempFilter} onChange={event => setTempFilter(event.target.value)}>
+                <option value="Todos">Todas</option>
+                <option value="hot">Quente</option>
+                <option value="warm">Morno</option>
+                <option value="cold">Frio</option>
+              </select>
+            </div>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors"
-          >
-            <Plus size={15} /> Novo Negócio
-          </button>
-        </div>
 
-        {/* kanban board */}
-        <div className="flex-1 overflow-x-auto p-4">
-          <div className="flex gap-3 h-full min-w-max">
-            {STAGES.map(stage => {
-              const stageDeals = visibleDeals.filter(d => d.stage === stage.id);
-              const stageTotal = stageDeals.reduce((s, d) => s + d.value, 0);
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label className="label">Responsável principal</label>
+              <select className="input" value={responsibleFilter} onChange={event => setResponsibleFilter(event.target.value)}>
+                <option value="">Todos</option>
+                {TEAM_MEMBERS.map(name => <option key={name}>{name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Profissional secundário</label>
+              <select className="input" value={secondaryFilter} onChange={event => setSecondaryFilter(event.target.value)}>
+                <option value="">Todos</option>
+                {TEAM_MEMBERS.map(name => <option key={name}>{name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Fluxo WhatsApp</label>
+              <select className="input" value={flowFilter} onChange={event => setFlowFilter(event.target.value)}>
+                <option value="">Todos</option>
+                {TEAM_MEMBERS.map(name => <option key={name}>{name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-100 p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700"><Settings2 size={13} /> Colunas visíveis</div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {STAGES.map(stage => (
+                <label key={stage.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                  <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={visibleStageIds.includes(stage.id)} onChange={() => toggleStageVisibility(stage.id)} />
+                  <span>{stage.id}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 mb-5 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="card p-4">
+          <div className="text-xs text-slate-500">Valor em aberto</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(openValue)}</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-slate-500">Valor fechado</div>
+          <div className="mt-1 text-xl font-bold text-teal-700">{formatCurrency(wonValue)}</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-slate-500">Comparação fechados</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{comparisonWonLeads.length} leads</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-slate-500">Comparação valor fechado</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(comparisonWonValue)}</div>
+        </div>
+      </div>
+
+      {isError && (
+        <div className="flex items-center gap-2 p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertCircle size={16} />Erro ao carregar pipeline.
+        </div>
+      )}
+      {moveError && (
+        <div className="flex items-center gap-2 p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertCircle size={16} />{moveError}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-slate-400" /></div>
+      ) : (
+        <div className="overflow-x-auto no-scrollbar pb-4">
+          <div className="flex gap-3 min-w-max">
+            {visibleStages.map(stage => {
+              const stageLeads = periodLeads.filter((lead: any) => lead.status === stage.id);
+              const stageValue = sumValue(stageLeads);
               return (
-                <div key={stage.id} className={`w-60 flex flex-col rounded-xl ${stage.color} border border-gray-200`}>
-                  {/* column header */}
-                  <div className="px-3 py-2.5 border-b border-gray-200 flex-shrink-0">
-                    <div className="flex items-center justify-between mb-0.5">
+                <div
+                  key={stage.id}
+                  className={`kanban-column rounded-2xl transition-colors ${dragOverStage === stage.id ? 'bg-primary-50/60 ring-2 ring-primary-200' : ''}`}
+                  onDragOver={event => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    setDragOverStage(stage.id);
+                  }}
+                  onDragLeave={() => setDragOverStage('')}
+                  onDrop={event => {
+                    event.preventDefault();
+                    const leadId = event.dataTransfer.getData('text/plain');
+                    setDragOverStage('');
+                    if (leadId) handleMove(leadId, stage.id);
+                  }}
+                >
+                  <div className="mb-3 px-1">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${stage.dot}`} />
-                        <span className="text-xs font-semibold text-gray-700">{stage.label}</span>
+                        <div className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
+                        <span className="text-xs font-semibold text-slate-700">{stage.id}</span>
+                        <span className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
+                          {stageLeads.length}
+                        </span>
                       </div>
-                      <span className="bg-white text-gray-600 text-xs font-semibold px-1.5 py-0.5 rounded-full border border-gray-200">
-                        {stageDeals.length}
-                      </span>
                     </div>
-                    <p className="text-xs text-gray-400 pl-4">R$ {stageTotal.toLocaleString('pt-BR')}</p>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-500">{formatCurrency(stageValue)}</div>
                   </div>
 
-                  {/* cards */}
-                  <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                    {stageDeals.map(deal => {
-                      const funnel = funnels.find(f => f.id === deal.channelId);
-                      return (
-                        <div
-                          key={deal.id}
-                          onClick={() => setSelectedDeal(deal)}
-                          className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm cursor-pointer hover:shadow-md hover:border-primary-200 transition-all"
-                        >
-                          <div className="flex items-start justify-between mb-1.5">
-                            <p className="text-sm font-medium text-gray-800 line-clamp-2 flex-1 leading-snug">{deal.title}</p>
-                            <div className="flex items-center gap-0.5 ml-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                              {onOpenChat && (
-                                <button
-                                  title="Abrir conversa"
-                                  onClick={() => { onOpenChat(deal.contactName, deal.channelId); }}
-                                  className="text-gray-300 hover:text-emerald-500 p-0.5 rounded transition-colors"
-                                >
-                                  <MessageCircle size={13} />
-                                </button>
-                              )}
-                              <button className="text-gray-300 hover:text-gray-500 p-0.5 rounded transition-colors">
-                                <MoreHorizontal size={14} />
-                              </button>
-                            </div>
-                          </div>
-                          <p className="text-xs text-gray-400 mb-2">{deal.company}</p>
-
-                          {/* funnel tag */}
-                          {funnel && !activeFunnelId && (
-                            <div className="mb-2">
-                              <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md font-medium" style={{ backgroundColor: funnel.color + '18', color: funnel.color }}>
-                                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: funnel.color }} />
-                                {funnel.name}
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-emerald-600">
-                              <DollarSign size={11} />
-                              <span className="text-xs font-semibold">R$ {deal.value.toLocaleString('pt-BR')}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-gray-400">
-                              <User size={11} />
-                              <span className="text-xs">{deal.assignee.split(' ')[0]}</span>
-                            </div>
-                          </div>
-
-                          {/* prob bar */}
-                          <div className="mt-2">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-xs text-gray-300">Prob.</span>
-                              <span className="text-xs text-gray-400 font-medium">{deal.probability}%</span>
-                            </div>
-                            <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-primary-500 rounded-full" style={{ width: `${deal.probability}%` }} />
-                            </div>
-                          </div>
-
-                          {/* move buttons */}
-                          <div className="flex items-center gap-1 mt-2" onClick={e => e.stopPropagation()}>
-                            <button onClick={() => moveStage(deal.id, 'prev')} className="flex-1 flex items-center justify-center gap-0.5 text-xs text-gray-300 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 transition-colors">
-                              <ChevronLeft size={11} /> Voltar
-                            </button>
-                            <div className="w-px h-3 bg-gray-100" />
-                            <button onClick={() => moveStage(deal.id, 'next')} className="flex-1 flex items-center justify-center gap-0.5 text-xs text-primary-400 hover:text-primary-600 hover:bg-primary-50 rounded py-0.5 transition-colors">
-                              Avançar <ChevronRight size={11} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {stageDeals.length === 0 && (
-                      <div className="text-center py-8 text-gray-300 text-xs">Nenhum negócio</div>
+                  <div className="space-y-2 flex-1">
+                    {stageLeads.map((lead: any) => (
+                      <KanbanCard key={lead.id} lead={lead} onMove={handleMove} onOpen={setSelectedLead} stages={visibleStages} />
+                    ))}
+                    {stageLeads.length === 0 && (
+                      <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
+                        <p className="text-xs text-slate-400">Sem leads</p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -370,117 +514,16 @@ export default function Pipeline({ selectedChannelId, onChannelChange, onOpenCha
             })}
           </div>
         </div>
-      </div>
-
-      {/* ── NEW DEAL MODAL ───────────────────────────────────────────────────── */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <div>
-                <h2 className="font-semibold text-gray-900">Novo Negócio</h2>
-                {activeFunnel && (
-                  <p className="text-xs text-gray-400 mt-0.5">Funil: <span className="font-medium" style={{ color: activeFunnel.color }}>{activeFunnel.name}</span></p>
-                )}
-              </div>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Título *</label>
-                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ex: Gestão de Redes Sociais" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Contato *</label>
-                  <input value={form.contactName} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Nome completo" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Empresa</label>
-                  <input value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} placeholder="Nome da empresa" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Valor (R$)</label>
-                  <input type="number" value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))} placeholder="0,00" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Responsável</label>
-                  <select value={form.assignee} onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                    {TEAM_MEMBERS.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3 p-5 border-t border-gray-100">
-              <button onClick={() => setShowModal(false)} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Cancelar</button>
-              <button onClick={addDeal} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700">Criar Negócio</button>
-            </div>
-          </div>
-        </div>
       )}
 
-      {/* ── DEAL DETAIL PANEL ────────────────────────────────────────────────── */}
-      {selectedDeal && (
-        <div className="fixed inset-y-0 right-0 w-80 bg-white border-l border-gray-200 shadow-xl z-40 flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900 text-sm">Detalhes do Negócio</h2>
-            <button onClick={() => setSelectedDeal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
-          </div>
-          <div className="p-4 space-y-3 overflow-y-auto flex-1">
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-0.5">{selectedDeal.title}</h3>
-              <p className="text-sm text-gray-500">{selectedDeal.company}</p>
-              {(() => { const f = funnels.find(f => f.id === selectedDeal.channelId); return f ? (
-                <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: f.color + '18', color: f.color }}>
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: f.color }} /> {f.name}
-                </span>
-              ) : null; })()}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-0.5">Valor</p>
-                <p className="font-semibold text-gray-900 text-sm">R$ {selectedDeal.value.toLocaleString('pt-BR')}</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-0.5">Probabilidade</p>
-                <p className="font-semibold text-gray-900 text-sm">{selectedDeal.probability}%</p>
-              </div>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-400 mb-0.5">Responsável</p>
-              <p className="font-medium text-gray-800 text-sm">{selectedDeal.assignee}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-400 mb-0.5">Etapa atual</p>
-              <p className="font-medium text-gray-800 text-sm">{STAGES.find(s => s.id === selectedDeal.stage)?.label}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-400 mb-0.5">Criado em</p>
-              <p className="font-medium text-gray-800 text-sm">{selectedDeal.createdAt}</p>
-            </div>
-          </div>
-          {/* Open chat button */}
-          {onOpenChat && (
-            <div className="px-4 pb-2">
-              <button
-                onClick={() => { onOpenChat(selectedDeal.contactName, selectedDeal.channelId); setSelectedDeal(null); }}
-                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-emerald-700 transition-colors"
-              >
-                <MessageCircle size={15} /> Abrir Conversa
-              </button>
-            </div>
-          )}
-          <div className="p-4 border-t border-gray-100 flex gap-2">
-            <button onClick={() => { moveStage(selectedDeal.id, 'prev'); setSelectedDeal(null); }} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-xs font-medium hover:bg-gray-50 flex items-center justify-center gap-1">
-              <ChevronLeft size={13} /> Voltar
-            </button>
-            <button onClick={() => { moveStage(selectedDeal.id, 'next'); setSelectedDeal(null); }} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-xs font-medium hover:bg-primary-700 flex items-center justify-center gap-1">
-              Avançar <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
+      {selectedLead && (
+        <LeadDetailsModal
+          lead={selectedLead}
+          stages={STAGES}
+          onClose={() => setSelectedLead(null)}
+          onMove={handleMove}
+          onUpdateValue={handleUpdateValue}
+        />
       )}
     </div>
   );

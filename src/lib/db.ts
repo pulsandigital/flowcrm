@@ -4,7 +4,12 @@ import type { Contact, Deal, Conversation, ChatMessage, WhatsAppChannel, Message
 // ── WhatsApp Channels ─────────────────────────────────────────────────────────
 export const channelsDb = {
   async getAll(): Promise<WhatsAppChannel[]> {
-    const { data } = await supabase.from('whatsapp_channels').select('*').order('created_at');
+    const { clinicId } = await getCurrentClinicId();
+    const { data } = await supabase
+      .from('whatsapp_channels')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('created_at');
     return (data ?? []).map(r => ({
       id: r.id, name: r.name, number: r.number ?? '',
       status: r.status, color: r.color, assignee: r.assignee ?? '',
@@ -13,18 +18,21 @@ export const channelsDb = {
     }));
   },
   async upsert(ch: WhatsAppChannel) {
+    const { clinicId } = await getCurrentClinicId();
     await supabase.from('whatsapp_channels').upsert({
-      id: ch.id, name: ch.name, number: ch.number, status: ch.status,
+      id: ch.id, clinic_id: clinicId, name: ch.name, number: ch.number, status: ch.status,
       color: ch.color, assignee: ch.assignee,
       leads_count: ch.leadsCount, messages_count: ch.messagesCount,
       created_at: ch.createdAt,
     });
   },
   async updateStatus(id: string, status: string) {
-    await supabase.from('whatsapp_channels').update({ status }).eq('id', id);
+    const { clinicId } = await getCurrentClinicId();
+    await supabase.from('whatsapp_channels').update({ status }).eq('id', id).eq('clinic_id', clinicId);
   },
   async delete(id: string) {
-    await supabase.from('whatsapp_channels').delete().eq('id', id);
+    const { clinicId } = await getCurrentClinicId();
+    await supabase.from('whatsapp_channels').delete().eq('id', id).eq('clinic_id', clinicId);
   },
 };
 
@@ -79,8 +87,10 @@ export const dealsDb = {
 // ── Conversations ─────────────────────────────────────────────────────────────
 export const conversationsDb = {
   async getAll(): Promise<Conversation[]> {
+    const { clinicId } = await getCurrentClinicId();
     const { data } = await supabase
       .from('conversations').select('*, messages(*)')
+      .eq('clinic_id', clinicId)
       .order('created_at', { ascending: false });
     return (data ?? []).map(r => ({
       id: r.id, contact: r.contact, status: r.status,
@@ -99,8 +109,9 @@ export const conversationsDb = {
     }));
   },
   async upsert(c: Conversation) {
+    const { clinicId } = await getCurrentClinicId();
     await supabase.from('conversations').upsert({
-      id: c.id, contact: c.contact, status: c.status,
+      id: c.id, clinic_id: clinicId, contact: c.contact, status: c.status,
       channel: c.channel, channel_id: c.channelId,
       last_message: c.lastMessage, last_message_time: c.lastMessageTime,
       unread_count: c.unreadCount, tags: c.tags,
@@ -109,22 +120,25 @@ export const conversationsDb = {
     });
   },
   async updateField(id: string, field: string, value: any) {
-    await supabase.from('conversations').update({ [field]: value }).eq('id', id);
+    const { clinicId } = await getCurrentClinicId();
+    await supabase.from('conversations').update({ [field]: value }).eq('id', id).eq('clinic_id', clinicId);
   },
 };
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 export const messagesDb = {
   async insert(convId: string, msg: ChatMessage) {
+    const { clinicId } = await getCurrentClinicId();
     await supabase.from('messages').insert({
-      id: msg.id, conversation_id: convId, content: msg.content,
+      id: msg.id, clinic_id: clinicId, conversation_id: convId, content: msg.content,
       sender: msg.sender, timestamp: msg.timestamp, status: msg.status ?? 'sent',
       type: msg.type ?? 'text', is_deleted: msg.isDeleted ?? false,
       is_edited: msg.isEdited ?? false, internal_author: msg.internalAuthor,
     });
   },
   async update(id: string, fields: Partial<{ content: string; is_deleted: boolean; is_edited: boolean }>) {
-    await supabase.from('messages').update(fields).eq('id', id);
+    const { clinicId } = await getCurrentClinicId();
+    await supabase.from('messages').update(fields).eq('id', id).eq('clinic_id', clinicId);
   },
 };
 
@@ -176,3 +190,95 @@ export const flowsDb = {
     await supabase.from('message_flows').update({ is_active: isActive }).eq('id', id);
   },
 };
+
+// ── Medical records ───────────────────────────────────────────────────────
+async function getCurrentClinicId() {
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Usuario nao autenticado.');
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('clinic_id')
+    .eq('id', userId)
+    .single();
+
+  if (error || !data?.clinic_id) {
+    throw new Error('Perfil sem clinica vinculada. Conclua o onboarding do usuario.');
+  }
+
+  return { clinicId: data.clinic_id as string, userId };
+}
+
+export const medicalRecordsDb = {
+  async getByPatient(patientId: string) {
+    const { data, error } = await supabase
+      .from('medical_records')
+      .select('*, profiles(full_name)')
+      .eq('patient_id', patientId)
+      .order('appointment_date', { ascending: false });
+
+    if (error) {
+      console.warn('Erro ao carregar prontuarios:', error.message);
+      return [];
+    }
+
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      patientId: r.patient_id,
+      date: (r.appointment_date ?? r.created_at ?? '').slice(0, 10),
+      type: r.appointment_type ?? 'Atendimento',
+      complaint: r.chief_complaint ?? '',
+      diagnosis: r.clinical_data?.diagnosis ?? '',
+      prescription: r.conduct ?? '',
+      notes: r.evolution ?? '',
+      professional: r.profiles?.full_name ?? '',
+      clinicalData: r.clinical_data ?? {},
+      createdAt: r.created_at,
+    }));
+  },
+
+  async insert(record: any) {
+    const { clinicId, userId } = await getCurrentClinicId();
+    const appointmentDate = record.date
+      ? new Date(`${record.date}T12:00:00`).toISOString()
+      : new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('medical_records')
+      .insert({
+        clinic_id: clinicId,
+        patient_id: record.patientId,
+        professional_id: userId,
+        specialty: record.specialty ?? 'Geral',
+        appointment_type: record.type ?? 'Atendimento',
+        appointment_date: appointmentDate,
+        chief_complaint: record.complaint ?? '',
+        clinical_data: {
+          ...record.clinicalData,
+          diagnosis: record.diagnosis ?? '',
+        },
+        evolution: record.notes ?? '',
+        conduct: record.prescription ?? '',
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async delete(id: string) {
+    const { error } = await supabase.from('medical_records').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+};
+
+// ── Re-exports from services (aliases expected by hooks) ──────────────────────
+export {
+  leadsService as leadsDb,
+  patientsService as patientsDb,
+  appointmentsService as appointmentsDb,
+  invoicesService as financialDb,
+  tasksService as tasksDb,
+} from './services';

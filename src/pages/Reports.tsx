@@ -1,275 +1,322 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Loader2, AlertCircle, TrendingUp, TrendingDown, Brain, Download, Filter } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Clock, Award, ArrowUpRight, Loader2 } from 'lucide-react';
-import { TEAM_MEMBERS, funnelData as staticFunnelData } from '../data/mockData';
-import { dealsDb, contactsDb, conversationsDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
-import type { Deal, Contact, Conversation } from '../types';
+import { useReportsData } from '../hooks/useReports';
 
-const CHANNEL_COLORS: Record<string, string> = {
-  whatsapp: '#25D366', instagram: '#E1306C', webchat: '#7c3aed', email: '#3b82f6',
-};
-const CHANNEL_NAMES: Record<string, string> = {
-  whatsapp: 'WhatsApp', instagram: 'Instagram', webchat: 'Web Chat', email: 'Email',
-};
-
-function buildChannelData(conversations: Conversation[]) {
-  if (conversations.length === 0) return [
-    { name: 'WhatsApp', value: 0, color: '#25D366' },
-    { name: 'Instagram', value: 0, color: '#E1306C' },
-    { name: 'Web Chat', value: 0, color: '#7c3aed' },
-    { name: 'Email', value: 0, color: '#3b82f6' },
-  ];
-  const counts: Record<string, number> = {};
-  conversations.forEach(c => { counts[c.channel] = (counts[c.channel] || 0) + 1; });
-  const total = conversations.length;
-  return Object.entries(counts).map(([ch, count]) => ({
-    name: CHANNEL_NAMES[ch] ?? ch,
-    value: Math.round((count / total) * 100),
-    color: CHANNEL_COLORS[ch] ?? '#6b7280',
-  }));
-}
-
-const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
-function buildMonthlyData(deals: Deal[]) {
-  const now = new Date();
-  return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const m = d.getMonth();
-    const y = d.getFullYear();
-    const monthDeals = deals.filter(deal => {
-      const dd = new Date(deal.createdAt);
-      return dd.getMonth() === m && dd.getFullYear() === y;
-    });
-    return {
-      month: months[m],
-      leads: monthDeals.length,
-      conversions: monthDeals.filter(d => d.stage === 'won').length,
-      revenue: monthDeals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0),
-    };
-  });
-}
-
-function buildFunnelData(deals: Deal[]) {
-  const stages = [
-    { key: 'new', stage: 'Novo Lead', color: '#8b5cf6' },
-    { key: 'qualifying', stage: 'Qualificando', color: '#6d28d9' },
-    { key: 'proposal', stage: 'Proposta', color: '#5b21b6' },
-    { key: 'negotiation', stage: 'Negociação', color: '#4c1d95' },
-    { key: 'won', stage: 'Ganho', color: '#10b981' },
-  ];
-  return stages.map(s => ({ ...s, count: deals.filter(d => d.stage === s.key).length }));
-}
-
-function KPICard({ label, value, sub, icon, color }: { label: string; value: string; sub: string; icon: React.ReactNode; color: string }) {
+/* ─── Custom Tooltip ──────────────────────────────────────── */
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm text-gray-500">{label}</p>
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>{icon}</div>
-      </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <div className="flex items-center gap-1 mt-1 text-xs text-emerald-600 font-medium">
-        <ArrowUpRight size={13} /><span>{sub}</span>
+    <div className="bg-white border border-slate-200 rounded-xl shadow-lg p-3 text-xs">
+      <div className="font-bold text-slate-800 mb-1.5">{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-slate-600">{p.name}:</span>
+          <span className="font-semibold text-slate-900">
+            {p.name === 'Receita'
+              ? `R$ ${Number(p.value).toLocaleString('pt-BR')}`
+              : p.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ─── KPI Card ─────────────────────────────────────────────── */
+function KPICard({
+  label, value, change, up, sub,
+}: {
+  label: string; value: string; change: string; up: boolean; sub?: string;
+}) {
+  return (
+    <div className="card p-5">
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-2xl font-bold text-slate-900 mt-1">{value}</div>
+      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
+      <div className={`flex items-center gap-1 mt-2 text-xs font-semibold ${up ? 'text-teal-600' : 'text-red-500'}`}>
+        {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+        {change} vs. mês anterior
       </div>
     </div>
   );
 }
 
+/* ─── Empty State ──────────────────────────────────────────── */
+function EmptyChartState({ message }: { message: string }) {
+  return (
+    <div className="flex items-center justify-center h-[200px] text-sm text-slate-400">
+      {message}
+    </div>
+  );
+}
+
+/* ─── Reports Page ─────────────────────────────────────────── */
 export default function Reports() {
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, isError } = useReportsData();
 
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return; }
-    const [d, c, cv] = await Promise.all([dealsDb.getAll(), contactsDb.getAll(), conversationsDb.getAll()]);
-    setDeals(d);
-    setContacts(c);
-    setConversations(cv);
-    setLoading(false);
-  }, []);
+  const now = new Date();
+  const monthLabel = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const monthCap   = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
 
-  useEffect(() => { load(); }, [load]);
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 size={32} className="animate-spin text-primary-500" />
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center p-10">
+      <Loader2 size={28} className="animate-spin text-primary-600" />
     </div>
   );
 
-  const totalRevenue = deals.filter(d => d.stage === 'won').reduce((s, d) => s + d.value, 0);
-  const wonCount = deals.filter(d => d.stage === 'won').length;
-  const convRate = deals.length > 0 ? ((wonCount / deals.length) * 100).toFixed(0) : '0';
-  const monthlyData = buildMonthlyData(deals);
-  const funnelData = deals.length > 0 ? buildFunnelData(deals) : staticFunnelData;
-  const channelData = buildChannelData(conversations);
+  if (isError) return (
+    <div className="p-6">
+      <div className="card p-6 flex items-center gap-3 text-red-600">
+        <AlertCircle size={20} />
+        <span>Erro ao carregar dados de relatórios.</span>
+      </div>
+    </div>
+  );
 
-  const teamPerf = TEAM_MEMBERS.map(member => ({
-    name: member.split(' ')[0],
-    deals: deals.filter(d => d.assignee === member && d.stage === 'won').length,
-    value: deals.filter(d => d.assignee === member && d.stage === 'won').reduce((s, d) => s + d.value, 0),
-    leads: contacts.filter(c => c.assignee === member).length,
-  }));
+  const d = data!;
+
+  const totalLeadsStr  = d.totalLeads.toString();
+  const convRateStr    = `${d.convRate.toFixed(1)}%`;
+  const revenueStr     = `R$ ${d.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`;
+  const avgCplStr      = d.avgCpl > 0 ? `R$ ${d.avgCpl.toFixed(2)}` : '—';
+
+  const leadsUp   = d.leadsDelta >= 0;
+  const revenueUp = d.revDelta  >= 0;
+
+  /* dynamic insights */
+  const insights: { type: 'up' | 'down'; text: string }[] = [];
+  if (d.leadsDelta !== 0) {
+    insights.push({
+      type: d.leadsDelta > 0 ? 'up' : 'down',
+      text: `Leads ${d.leadsDelta > 0 ? 'cresceram' : 'caíram'} ${Math.abs(d.leadsDelta)}% em relação ao mês anterior.`,
+    });
+  }
+  if (d.totalLeads === 0) {
+    insights.push({ type: 'down', text: 'Nenhum lead registrado ainda. Cadastre leads no CRM para ver estatísticas.' });
+  }
+  if (d.convRate > 0 && d.convRate < 10) {
+    insights.push({ type: 'down', text: `Taxa de conversão em ${d.convRate.toFixed(1)}% — revisar abordagem comercial pós-qualificação.` });
+  }
+  if (d.convRate >= 20) {
+    insights.push({ type: 'up', text: `Excelente taxa de conversão: ${d.convRate.toFixed(1)}%!` });
+  }
+  if (d.campaignPerf.length > 0) {
+    const best = [...d.campaignPerf].sort((a, b) => b.conversions - a.conversions)[0];
+    if (best.conversions > 0) {
+      insights.push({ type: 'up', text: `Campanha "${best.name}" tem o maior número de conversões (${best.conversions}).` });
+    }
+  }
+  if (insights.length === 0) {
+    insights.push({ type: 'up', text: 'Plataforma conectada ao Supabase. Os dados aparecerão aqui conforme forem cadastrados.' });
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Period Selector */}
+    <div className="p-6 space-y-6 animate-slide-up">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Dados dos últimos 6 meses</p>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          {['7 dias', '30 dias', '3 meses', '6 meses', '1 ano'].map((p, i) => (
-            <button key={p} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${i === 3 ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{p}</button>
-          ))}
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Relatórios</h1>
+          <p className="text-sm text-slate-500">Nucleus Growth — Análise completa · {monthCap}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="btn-secondary btn-sm"><Filter size={13} /> Período</button>
+          <button className="btn-secondary btn-sm"><Download size={13} /> Exportar PDF</button>
+        </div>
+      </div>
+
+      {/* AI Summary */}
+      <div className="card dark-readable-panel dark-readable-success p-5 bg-gradient-to-r from-primary-50 to-nucleus-50 border border-primary-100">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+            <Brain size={18} className="text-primary-600" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-900 mb-1.5">Análise Nucleus — {monthCap}</div>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              {d.totalLeads > 0
+                ? <>
+                    <strong>Total de leads:</strong> {d.totalLeads} registrados.{' '}
+                    <strong>Conversão:</strong> {d.convRate.toFixed(1)}% ({d.converted} convertidos).{' '}
+                    {d.totalRevenue > 0 && <><strong>Receita confirmada:</strong> R$ {d.totalRevenue.toLocaleString('pt-BR')}.</>}
+                    {' '}{d.avgCpl > 0 && <>CPL médio de campanhas: R$ {d.avgCpl.toFixed(2)}.</>}
+                  </>
+                : 'Nenhum dado registrado ainda. Comece cadastrando leads, pacientes e campanhas para ver sua análise completa aqui.'
+              }
+            </p>
+          </div>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KPICard label="Receita Total" value={totalRevenue > 0 ? `R$ ${(totalRevenue / 1000).toFixed(1)}k` : 'R$ 0'} sub={wonCount > 0 ? `${wonCount} negócios ganhos` : 'Nenhum ganho ainda'} icon={<DollarSign size={18} className="text-emerald-600" />} color="bg-emerald-50" />
-        <KPICard label="Total de Leads" value={String(contacts.length)} sub={contacts.length > 0 ? `${contacts.filter(c => c.status === 'lead').length} leads ativos` : 'Nenhum contato ainda'} icon={<Users size={18} className="text-blue-600" />} color="bg-blue-50" />
-        <KPICard label="Taxa de Conversão" value={`${convRate}%`} sub={deals.length > 0 ? `${deals.length} negócios total` : 'Nenhum negócio ainda'} icon={<TrendingUp size={18} className="text-primary-600" />} color="bg-primary-50" />
-        <KPICard label="Tempo Médio de Fechamento" value="—" sub="Calculado com dados reais" icon={<Clock size={18} className="text-amber-600" />} color="bg-amber-50" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          label="Total Leads"
+          value={totalLeadsStr}
+          change={`${leadsUp ? '+' : ''}${d.leadsDelta}%`}
+          up={leadsUp}
+          sub={`${d.converted} convertidos`}
+        />
+        <KPICard
+          label="Conversão"
+          value={convRateStr}
+          change="—"
+          up={d.convRate >= 15}
+          sub={`${d.converted}/${d.totalLeads} leads`}
+        />
+        <KPICard
+          label="Receita Confirmada"
+          value={revenueStr}
+          change={`${revenueUp ? '+' : ''}${d.revDelta}%`}
+          up={revenueUp}
+        />
+        <KPICard
+          label="CPL Médio"
+          value={avgCplStr}
+          change="—"
+          up={d.avgCpl > 0 && d.avgCpl < 50}
+          sub="custo por lead (campanhas)"
+        />
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Revenue Line */}
-        <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">Receita x Leads por Mês</h2>
-          {deals.length === 0 ? (
-            <div className="h-[240px] flex items-center justify-center text-gray-400 text-sm">
-              Crie negócios no Pipeline para ver dados aqui
+      {/* Charts row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Lead trend */}
+        <div className="lg:col-span-2 card p-5">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="section-title">Evolução mensal de leads</h2>
+            <div className="flex items-center gap-3 text-xs text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-1.5 rounded-full bg-primary-500 inline-block" /> Leads
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-1.5 rounded-full bg-teal-500 inline-block" /> Convertidos
+              </span>
             </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }} formatter={(v: number, name: string) => name === 'Receita' ? [`R$ ${v.toLocaleString('pt-BR')}`, name] : [v, name]} />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#7c3aed' }} name="Receita" />
-                <Line yAxisId="right" type="monotone" dataKey="leads" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981' }} name="Leads" strokeDasharray="5 5" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+          </div>
+          {d.monthlyLeads.every(m => m.leads === 0)
+            ? <EmptyChartState message="Nenhum lead cadastrado nos últimos 7 meses" />
+            : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={d.monthlyLeads}>
+                  <defs>
+                    <linearGradient id="leads" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#3B82F6" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="conv" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#0D9488" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#0D9488" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area type="monotone" dataKey="leads"     name="Leads"
+                    stroke="#3B82F6" strokeWidth={2} fill="url(#leads)"
+                    dot={{ r: 3, fill: '#3B82F6' }} />
+                  <Area type="monotone" dataKey="converted" name="Convertidos"
+                    stroke="#0D9488" strokeWidth={2} fill="url(#conv)"
+                    dot={{ r: 3, fill: '#0D9488' }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )
+          }
         </div>
 
-        {/* Channel Pie */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">Leads por Canal</h2>
+        {/* Channel pie */}
+        <div className="card p-5">
+          <h2 className="section-title mb-5">Leads por canal</h2>
+          {d.channelData.length === 0
+            ? <EmptyChartState message="Sem dados de canal" />
+            : (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={d.channelData} cx="50%" cy="50%"
+                      innerRadius={45} outerRadius={75}
+                      dataKey="value" paddingAngle={3}>
+                      {d.channelData.map((entry, index) => (
+                        <Cell key={index} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(val: number) => [`${val}%`, 'Participação']} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2 mt-2">
+                  {d.channelData.map(c => (
+                    <div key={c.name} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
+                        <span className="text-slate-600">{c.name}</span>
+                      </div>
+                      <span className="font-bold text-slate-800">{c.value}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          }
+        </div>
+      </div>
+
+      {/* Charts row 2 — Campaign performance */}
+      {d.campaignPerf.length > 0 && (
+        <div className="card p-5">
+          <h2 className="section-title mb-5">Performance por campanha</h2>
           <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={channelData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
-                {channelData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => [`${v}%`, 'Participação']} />
-            </PieChart>
+            <BarChart data={d.campaignPerf} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="leads"       name="Leads"      fill="#3B82F6" radius={[4,4,0,0]} />
+              <Bar dataKey="conversions" name="Conversões" fill="#0D9488" radius={[4,4,0,0]} />
+            </BarChart>
           </ResponsiveContainer>
-          <div className="space-y-2 mt-2">
-            {channelData.map(ch => (
-              <div key={ch.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ background: ch.color }} />
-                  <span className="text-gray-600">{ch.name}</span>
-                </div>
-                <span className="font-semibold text-gray-800">{ch.value}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {/* Funnel */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">Funil de Vendas</h2>
-          {funnelData[0].count === 0 && deals.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-400">
-              Crie negócios no Pipeline para ver o funil aqui
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {funnelData.map((stage, i) => {
-                const maxCount = funnelData[0].count || 1;
-                const pct = Math.round((stage.count / maxCount) * 100);
-                const conv = i > 0 && funnelData[i - 1].count > 0
-                  ? Math.round((stage.count / funnelData[i - 1].count) * 100)
-                  : i === 0 ? 100 : 0;
-                return (
-                  <div key={stage.stage}>
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-gray-700 font-medium">{stage.stage}</span>
-                      <div className="flex items-center gap-3">
-                        {i > 0 && <span className="text-xs text-gray-400">Conv: {conv}%</span>}
-                        <span className="font-bold text-gray-900">{stage.count}</span>
-                      </div>
-                    </div>
-                    <div className="h-7 bg-gray-100 rounded-lg overflow-hidden">
-                      <div
-                        className="h-full rounded-lg flex items-center px-3 transition-all"
-                        style={{ width: `${pct || 0}%`, background: stage.color, minWidth: stage.count > 0 ? '2rem' : '0' }}
-                      >
-                        {pct > 10 && <span className="text-white text-xs font-semibold">{pct}%</span>}
-                      </div>
-                    </div>
+          {d.campaignPerf.some(c => c.cpl > 0) && (
+            <div className="mt-4 grid grid-cols-4 gap-2 border-t border-slate-100 pt-4">
+              {d.campaignPerf.map(c => (
+                <div key={c.name} className="text-center">
+                  <div className="text-xs font-semibold text-slate-800">
+                    {c.cpl > 0 ? `R$ ${c.cpl.toFixed(0)}` : '—'}
                   </div>
-                );
-              })}
+                  <div className="text-[10px] text-slate-400">CPL {c.name}</div>
+                </div>
+              ))}
             </div>
           )}
         </div>
+      )}
 
-        {/* Team Performance */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">Performance da Equipe</h2>
-          <div className="space-y-3">
-            {teamPerf.sort((a, b) => b.value - a.value).map((member, i) => (
-              <div key={member.name} className="flex items-center gap-4">
-                <div className="flex items-center gap-2 w-24 flex-shrink-0">
-                  {i === 0 && <Award size={14} className="text-amber-500" />}
-                  <div className="w-7 h-7 bg-primary-100 rounded-full flex items-center justify-center text-primary-700 font-semibold text-xs">
-                    {member.name[0]}
-                  </div>
-                  <span className="text-sm text-gray-700 font-medium">{member.name}</span>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-500">{member.leads} leads · {member.deals} fechados</span>
-                    <span className="font-semibold text-gray-800">R$ {(member.value / 1000).toFixed(1)}k</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary-500 rounded-full"
-                      style={{ width: `${teamPerf[0].value > 0 ? (member.value / teamPerf[0].value) * 100 : 0}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Vendas por Membro (últimos meses)</h3>
-            <ResponsiveContainer width="100%" height={140}>
-              <BarChart data={teamPerf}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
-                <Tooltip contentStyle={{ borderRadius: 8 }} />
-                <Bar dataKey="leads" name="Leads" fill="#ddd6fe" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="deals" name="Fechados" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+      {/* Insights */}
+      <div className="card p-5">
+        <h2 className="section-title mb-4 flex items-center gap-2">
+          <Brain size={16} className="text-nucleus-600" /> Insights automáticos
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {insights.map((insight, i) => (
+            <div
+              key={i}
+              className={`dark-readable-panel flex items-start gap-3 p-3.5 rounded-xl ${
+                insight.type === 'up'
+                  ? 'bg-teal-50 border border-teal-100 dark-readable-success'
+                  : 'bg-red-50 border border-red-100 dark-readable-danger'
+              }`}
+            >
+              {insight.type === 'up'
+                ? <TrendingUp  size={15} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                : <TrendingDown size={15} className="text-red-500  flex-shrink-0 mt-0.5" />
+              }
+              <p className={`text-sm ${insight.type === 'up' ? 'text-teal-800' : 'text-red-800'}`}>
+                {insight.text}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     </div>

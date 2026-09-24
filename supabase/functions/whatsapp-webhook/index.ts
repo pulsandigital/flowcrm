@@ -1,95 +1,106 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-);
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const encryptionSecret = Deno.env.get('INTEGRATION_ENCRYPTION_KEY') ?? '';
+const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+async function expectedToken(clinicId: string, channelId: string) {
+  if (encryptionSecret.length < 32) {
+    throw new Error('INTEGRATION_ENCRYPTION_KEY ausente ou insegura.');
+  }
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(encryptionSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${clinicId}:${channelId}`),
+  );
+  return Array.from(new Uint8Array(signature)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method === 'GET') return new Response('whatsapp-webhook ok', { headers: corsHeaders });
+  if (req.method === 'GET') return json({ ok: true });
+  if (req.method !== 'POST') return json({ error: 'Metodo nao permitido.' }, 405);
 
   try {
+    const url = new URL(req.url);
+    const channelId = url.searchParams.get('channel') ?? '';
+    const token = url.searchParams.get('token') ?? '';
+    if (!channelId || !token) return json({ error: 'Webhook nao autenticado.' }, 401);
+
+    const { data: channel, error: channelError } = await supabase
+      .from('whatsapp_channels')
+      .select('id, clinic_id')
+      .eq('id', channelId)
+      .single();
+    if (channelError || !channel?.clinic_id) return json({ error: 'Canal invalido.' }, 401);
+    if (token !== await expectedToken(channel.clinic_id, channelId)) {
+      return json({ error: 'Assinatura invalida.' }, 401);
+    }
+
     const payload = await req.json();
-    const { event, instance, data } = payload;
+    const event = String(payload.event ?? '').replace(/[._-]/g, '').toUpperCase();
+    const data = Array.isArray(payload.data) ? payload.data[0] : payload.data;
+    if (event !== 'MESSAGESUPSERT' || !data || data.key?.fromMe) return json({ ignored: true });
 
-    // Only process incoming messages
-    if (event !== 'messages.upsert' || !data) {
-      return new Response(JSON.stringify({ ignored: true }), { headers: corsHeaders });
-    }
+    const remoteJid = String(data.key?.remoteJid ?? '');
+    if (!remoteJid || remoteJid.includes('@g.us')) return json({ ignored: true });
 
-    // Skip messages sent by us or group messages
-    if (data.key?.fromMe) {
-      return new Response(JSON.stringify({ ignored: 'fromMe' }), { headers: corsHeaders });
-    }
-    const remoteJid: string = data.key?.remoteJid ?? '';
-    if (remoteJid.includes('@g.us')) {
-      return new Response(JSON.stringify({ ignored: 'group' }), { headers: corsHeaders });
-    }
+    const phone = remoteJid.replace(/@.+$/, '');
+    const contactName = String(data.pushName ?? phone);
+    const messageText = String(
+      data.message?.conversation
+      ?? data.message?.extendedTextMessage?.text
+      ?? data.message?.imageMessage?.caption
+      ?? data.message?.videoMessage?.caption
+      ?? data.message?.documentMessage?.title
+      ?? '[Midia]',
+    );
+    const timestamp = new Date(Number(data.messageTimestamp ?? Date.now() / 1000) * 1000).toISOString();
+    const messageId = String(data.key?.id ?? crypto.randomUUID());
 
-    const phone = remoteJid.replace('@s.whatsapp.net', '');
-    const contactName: string = data.pushName ?? phone;
-    const messageText: string =
-      data.message?.conversation ||
-      data.message?.extendedTextMessage?.text ||
-      data.message?.imageMessage?.caption ||
-      data.message?.videoMessage?.caption ||
-      data.message?.documentMessage?.title ||
-      '[Mídia]';
-
-    const messageId: string = data.key?.id ?? `msg_${Date.now()}`;
-    const ts = Number(data.messageTimestamp ?? Math.floor(Date.now() / 1000));
-    const timestamp = new Date(ts * 1000).toISOString();
-
-    // channelId from instance name: "flowcrm_ch123" → "ch123"
-    const channelId: string = (instance ?? '').replace('flowcrm_', '');
-
-    // Find existing conversation (filter by channel + phone inside JSONB contact)
-    const { data: convRows } = await supabase
+    const { data: conversations, error: conversationError } = await supabase
       .from('conversations')
       .select('id, unread_count')
+      .eq('clinic_id', channel.clinic_id)
       .eq('channel_id', channelId)
       .eq('contact->>phone', phone)
       .limit(1);
+    if (conversationError) throw conversationError;
 
-    let convId: string;
-
-    if (convRows && convRows.length > 0) {
-      convId = convRows[0].id;
-      await supabase.from('conversations').update({
+    let conversationId: string;
+    if (conversations?.length) {
+      conversationId = conversations[0].id;
+      const { error } = await supabase.from('conversations').update({
         last_message: messageText,
         last_message_time: timestamp,
-        unread_count: (convRows[0].unread_count ?? 0) + 1,
+        unread_count: (conversations[0].unread_count ?? 0) + 1,
         status: 'open',
-      }).eq('id', convId);
+      }).eq('id', conversationId).eq('clinic_id', channel.clinic_id);
+      if (error) throw error;
     } else {
-      convId = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      const avatar = contactName.split(' ')
-        .map((n: string) => n[0] ?? '')
-        .join('')
-        .slice(0, 2)
-        .toUpperCase();
-
-      await supabase.from('conversations').insert({
-        id: convId,
+      conversationId = crypto.randomUUID();
+      const avatar = contactName.split(/\s+/).map((part) => part[0] ?? '').join('').slice(0, 2).toUpperCase();
+      const { error } = await supabase.from('conversations').insert({
+        id: conversationId,
+        clinic_id: channel.clinic_id,
         contact: {
-          id: `c_${phone}`,
-          name: contactName,
-          phone,
-          company: '',
-          email: '',
-          tags: [],
-          status: 'lead',
-          assignee: '',
-          createdAt: timestamp,
-          lastActivity: timestamp,
-          avatar,
+          id: `c_${phone}`, name: contactName, phone, company: '', email: '',
+          tags: [], status: 'lead', assignee: '', createdAt: timestamp,
+          lastActivity: timestamp, avatar,
         },
         status: 'open',
         channel: 'whatsapp',
@@ -100,12 +111,13 @@ serve(async (req) => {
         tags: [],
         assignee: '',
       });
+      if (error) throw error;
     }
 
-    // Insert message (upsert to avoid duplicates)
-    await supabase.from('messages').upsert({
+    const { error: messageError } = await supabase.from('messages').upsert({
       id: messageId,
-      conversation_id: convId,
+      clinic_id: channel.clinic_id,
+      conversation_id: conversationId,
       content: messageText,
       sender: 'contact',
       timestamp,
@@ -114,16 +126,11 @@ serve(async (req) => {
       is_deleted: false,
       is_edited: false,
     });
+    if (messageError) throw messageError;
 
-    return new Response(JSON.stringify({ ok: true, convId, phone }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (err) {
-    console.error('Webhook error:', err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return json({ ok: true, conversationId });
+  } catch (error) {
+    console.error('whatsapp-webhook:', error);
+    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
   }
 });

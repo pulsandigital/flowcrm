@@ -8,6 +8,7 @@ import {
 import { TEAM_MEMBERS } from '../data/mockData';
 import { conversationsDb, messagesDb, channelsDb } from '../lib/db';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { evolutionApi } from '../lib/evolution';
 import type { Conversation, ChatMessage, ConvStatus, LeadSource, LossReason, WhatsAppChannel } from '../types';
 
 interface Props {
@@ -269,6 +270,8 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ConvStatus | 'all'>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [flowFilter, setFlowFilter] = useState<'all' | 'in_flow' | 'manual'>('all');
   const [isInternal, setIsInternal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -286,7 +289,9 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     const matchSearch = c.contact.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || c.status === filterStatus;
     const matchChannel = !selectedChannelId || c.channelId === selectedChannelId;
-    return matchSearch && matchStatus && matchChannel;
+    const matchAssignee = !assigneeFilter || c.assignee === assigneeFilter || c.contact.assignee === assigneeFilter;
+    const matchFlow = flowFilter === 'all' || (flowFilter === 'in_flow' ? c.inFlow : !c.inFlow);
+    return matchSearch && matchStatus && matchChannel && matchAssignee && matchFlow;
   });
 
   const updateSelected = (updated: Conversation[]) => {
@@ -310,6 +315,9 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
     };
     await messagesDb.insert(selected.id, msg);
     await conversationsDb.updateField(selected.id, 'last_message', msg.content);
+    if (type === 'text' && !isInternal && !scheduled && selected.channel === 'whatsapp' && selected.contact.phone) {
+      await evolutionApi.sendText(selected.channelId, selected.contact.phone, msg.content);
+    }
     const updated = conversations.map(c =>
       c.id === selected.id
         ? { ...c, messages: [...c.messages, msg], lastMessage: msg.content, lastMessageTime: msg.timestamp, unreadCount: 0 }
@@ -417,6 +425,17 @@ export default function Chat({ selectedChannelId, onChannelChange, initialContac
                 {s === 'all' ? 'Todos' : statusLabel[s]}
               </button>
             ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <select value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)} className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500">
+              <option value="">Todos profissionais</option>
+              {TEAM_MEMBERS.map(member => <option key={member}>{member}</option>)}
+            </select>
+            <select value={flowFilter} onChange={e => setFlowFilter(e.target.value as typeof flowFilter)} className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500">
+              <option value="all">Todos fluxos</option>
+              <option value="in_flow">Em fluxo</option>
+              <option value="manual">Manual</option>
+            </select>
           </div>
         </div>
 

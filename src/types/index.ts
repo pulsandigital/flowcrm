@@ -123,6 +123,65 @@ export interface FlowStep {
   nextStepElseId?: string;
 }
 
+export interface Patient {
+  id: string;
+  name: string;
+  dob: string;
+  cpf: string;
+  phone: string;
+  email: string;
+  city: string;
+  state: string;
+  specialty: string;
+  plan: string;
+  planFee?: number;
+  professional: string;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Lead {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  channel: string;
+  temperature: string;
+  stage: string;
+  origin: string;
+  tags: string[];
+  assignee: string;
+  responsible?: string;
+  secondaryResponsible?: string;
+  flowOwner?: string;
+  status?: string;
+  city?: string;
+  specialty?: string;
+  score?: number;
+  notes: string;
+  value: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Appointment {
+  id: string;
+  clinic_id: string;
+  patient_id?: string;
+  professional_id?: string;
+  title?: string;
+  specialty?: string;
+  appointment_type: string;
+  starts_at: string;
+  ends_at: string;
+  location?: string;
+  is_online: boolean;
+  status: string;
+  notes?: string;
+}
+
 export interface MessageFlow {
   id: string;
   name: string;

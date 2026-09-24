@@ -1,289 +1,233 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+﻿import { useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
 import {
-  LayoutDashboard, GitMerge, Users, MessageCircle,
-  FileText, Workflow, BarChart2, Settings, Zap,
-  ChevronLeft, ChevronRight, Smartphone, Plus, ChevronDown,
-  Wifi, WifiOff, Loader2,
+  LayoutDashboard,
+  Users,
+  MessageSquare,
+  Kanban,
+  Calendar,
+  FileText,
+  DollarSign,
+  Landmark,
+  Megaphone,
+  BarChart3,
+  Sparkles,
+  TrendingUp,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Activity,
+  ClipboardList,
+  FileSignature,
+  Zap,
+  Phone,
+  Building2,
+  Database,
+  Rocket,
 } from 'lucide-react';
-import type { Page, WhatsAppChannel } from '../types';
-import { channelsDb } from '../lib/db';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { getBrandSettings, type BrandSettings } from '../lib/branding';
+import { useCurrentProfile } from '../hooks/useCurrentProfile';
 
-interface Props {
-  current: Page;
-  onNavigate: (page: Page, channelId?: string) => void;
-  collapsed: boolean;
-  onToggle: () => void;
-  selectedChannelId: string | null;
-}
-
-const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
-  { id: 'dashboard', label: 'Dashboard',      icon: <LayoutDashboard size={20} /> },
-  { id: 'pipeline',  label: 'Pipeline',        icon: <GitMerge size={20} /> },
-  { id: 'contacts',  label: 'Contatos',        icon: <Users size={20} /> },
-  { id: 'chat',      label: 'Atendimento',     icon: <MessageCircle size={20} /> },
-  { id: 'flow',      label: 'Fluxo de Msgs',   icon: <Workflow size={20} /> },
-  { id: 'templates', label: 'Templates',       icon: <FileText size={20} /> },
-  { id: 'reports',   label: 'Relatórios',      icon: <BarChart2 size={20} /> },
+/* Navigation Structure */
+const NAV_SECTIONS = [
+  {
+    label: 'Principal',
+    items: [
+      { path: '/',        icon: LayoutDashboard, label: 'Dashboard',   exact: true },
+    ],
+  },
+  {
+    label: 'Nucleus CRM',
+    items: [
+      { path: '/crm/leads',    icon: Users,        label: 'Leads' },
+      { path: '/crm/pipeline', icon: Kanban,       label: 'Pipeline' },
+      { path: '/crm/chat',     icon: MessageSquare, label: 'WhatsApp' },
+      { path: '/crm/channels', icon: Phone,         label: 'Canais' },
+      { path: '/crm/tasks',    icon: ClipboardList, label: 'Tarefas' },
+    ],
+  },
+  {
+    label: 'Nucleus Care',
+    items: [
+      { path: '/care/patients',  icon: Activity,   label: 'Pacientes' },
+      { path: '/care/records',   icon: FileText,   label: 'Prontuários' },
+      { path: '/care/schedule',  icon: Calendar,   label: 'Agenda' },
+      { path: '/care/documents', icon: FileSignature, label: 'Documentos' },
+      { path: '/care/scales',    icon: ClipboardList, label: 'Escalas' },
+      { path: '/care/locations', icon: Building2, label: 'Locais' },
+      { path: '/care/internal-chat', icon: MessageSquare, label: 'Chat interno' },
+    ],
+  },
+  {
+    label: 'Nucleus Finance',
+    items: [
+      { path: '/finance/bank-accounts', icon: Landmark, label: 'Contas bancárias' },
+      { path: '/finance', icon: DollarSign, label: 'Financeiro' },
+    ],
+  },
+  {
+    label: 'Nucleus Marketing',
+    items: [
+      { path: '/marketing/campaigns',  icon: Megaphone, label: 'Campanhas' },
+      { path: '/marketing/growth',     icon: TrendingUp, label: 'Growth' },
+    ],
+  },
+  {
+    label: 'Inteligência',
+    items: [
+      { path: '/ai',      icon: Sparkles,   label: 'Nucleus AI' },
+      { path: '/reports', icon: BarChart3,  label: 'Relatórios' },
+    ],
+  },
+  {
+    label: 'Administração',
+    items: [
+      { path: '/production', icon: Rocket, label: 'Produção' },
+      { path: '/import', icon: Database, label: 'Importação' },
+    ],
+  },
 ];
 
-const STATUS_ICON: Record<string, React.ReactNode> = {
-  connected:    <Wifi size={11} className="text-emerald-500" />,
-  disconnected: <WifiOff size={11} className="text-gray-400" />,
-  connecting:   <Loader2 size={11} className="text-amber-400 animate-spin" />,
-};
+/* Logo Component */
+function NucleusLogo({ collapsed }: { collapsed: boolean }) {
+  const [brand, setBrand] = useState<BrandSettings>(() => getBrandSettings());
+  const { data: currentProfile } = useCurrentProfile();
 
-const STATUS_DOT: Record<string, string> = {
-  connected:    'bg-emerald-500',
-  disconnected: 'bg-gray-300',
-  connecting:   'bg-amber-400 animate-pulse',
-};
-
-export default function Sidebar({ current, onNavigate, collapsed, onToggle, selectedChannelId }: Props) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [channels, setChannels] = useState<WhatsAppChannel[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [userName, setUserName] = useState('Usuário');
-  const [userInitials, setUserInitials] = useState('U');
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const loadChannels = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
-    const data = await channelsDb.getAll();
-    setChannels(data);
-  }, []);
-
-  const loadUnread = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
-    const { data } = await supabase.from('conversations').select('unread_count').gt('unread_count', 0);
-    const total = (data ?? []).reduce((sum: number, r: any) => sum + (r.unread_count ?? 0), 0);
-    setUnreadCount(total);
-  }, []);
-
-  useEffect(() => { loadChannels(); loadUnread(); }, [loadChannels, loadUnread]);
-
-  // Load current user from auth
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    supabase.auth.getUser().then(({ data }) => {
-      const user = data?.user;
-      if (!user) return;
-      const email = user.email ?? '';
-      const meta = user.user_metadata ?? {};
-      const name = meta.full_name || meta.name || email.split('@')[0] || 'Usuário';
-      setUserName(name);
-      setUserInitials(name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase());
-    });
-  }, []);
-
-  // Realtime: update badge when conversations change
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    const ch = supabase.channel('sidebar-unread')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => loadUnread())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [loadUnread]);
-
-  // Refresh channels when dropdown opens
-  useEffect(() => {
-    if (dropdownOpen) loadChannels();
-  }, [dropdownOpen, loadChannels]);
-
-  // close dropdown when clicking outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
+    const update = () => setBrand(getBrandSettings());
+    window.addEventListener('nucleus:brand-settings-updated', update);
+    window.addEventListener('storage', update);
+    return () => {
+      window.removeEventListener('nucleus:brand-settings-updated', update);
+      window.removeEventListener('storage', update);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const activeChannel = selectedChannelId
-    ? channels.find(c => c.id === selectedChannelId)
-    : null;
+  const clinic = currentProfile?.clinics;
+  const businessName = clinic?.brand_name || clinic?.name || brand.businessName || 'Nucleus';
+  const subtitle = brand.subtitle || currentProfile?.specialty || clinic?.default_specialty || 'Plataforma de saúde';
+  const logoUrl = clinic?.logo_url || brand.logoUrl;
 
   return (
-    <aside className={`flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ${collapsed ? 'w-16' : 'w-60'} min-h-screen relative`}>
-
-      {/* ── LOGO + FUNNEL DROPDOWN ────────────────────────────────────────── */}
-      <div className="relative border-b border-gray-100" ref={dropdownRef}>
-        <div className="flex items-center justify-between px-4 py-4">
-          {/* clickable logo area → opens dropdown */}
-          <button
-            onClick={() => !collapsed && setDropdownOpen(o => !o)}
-            className={`flex items-center gap-2 min-w-0 ${!collapsed ? 'hover:opacity-80 transition-opacity' : ''}`}
-            title={collapsed ? 'FlowCRM' : undefined}
-          >
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Zap size={18} className="text-white" />
-            </div>
-            {!collapsed && (
-              <>
-                <div className="min-w-0 text-left">
-                  <p className="font-bold text-gray-900 text-sm leading-tight tracking-tight">FlowCRM</p>
-                  {activeChannel ? (
-                    <p className="text-xs truncate max-w-[100px]" style={{ color: activeChannel.color }}>
-                      {activeChannel.name}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-400 truncate">Todos os funis</p>
-                  )}
-                </div>
-                <ChevronDown
-                  size={14}
-                  className={`text-gray-400 flex-shrink-0 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
-                />
-              </>
-            )}
-          </button>
-
-          {/* collapse toggle */}
-          {!collapsed && (
-            <button
-              onClick={onToggle}
-              className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0 ml-1"
-            >
-              <ChevronLeft size={16} />
-            </button>
-          )}
+    <div className={`flex items-center gap-3 px-3 py-1 ${collapsed ? 'justify-center' : ''}`}>
+      {logoUrl ? (
+        <img src={logoUrl} alt={businessName} className="h-9 w-9 flex-shrink-0 rounded-xl border border-white/15 object-cover shadow-lg shadow-primary-900/30" />
+      ) : (
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-900/40 flex-shrink-0">
+          <Zap size={18} className="text-white" />
         </div>
-
-        {/* ── DROPDOWN ──────────────────────────────────────────────────────── */}
-        {dropdownOpen && !collapsed && (
-          <div className="absolute top-full left-3 right-3 z-50 bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
-            {/* header */}
-            <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Funis WhatsApp</span>
-              <button
-                onClick={() => { setDropdownOpen(false); onNavigate('channels'); }}
-                className="p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
-                title="Gerenciar números"
-              >
-                <Plus size={13} />
-              </button>
-            </div>
-
-            {/* "Todos" option */}
-            <button
-              onClick={() => { setDropdownOpen(false); onNavigate('pipeline', undefined); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors ${
-                !selectedChannelId ? 'bg-gray-50 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
-              <span className="flex-1 truncate">Todos os funis</span>
-              <span className="text-xs text-gray-400">{channels.length}</span>
-            </button>
-
-            {/* channels */}
-            <div className="max-h-56 overflow-y-auto">
-              {channels.length === 0 && (
-                <p className="text-xs text-gray-400 px-4 py-3 text-center">Nenhum funil. Clique em + para adicionar.</p>
-              )}
-              {channels.map(ch => {
-                const isActive = selectedChannelId === ch.id;
-                return (
-                  <button
-                    key={ch.id}
-                    onClick={() => { setDropdownOpen(false); onNavigate('pipeline', ch.id); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
-                      isActive ? 'font-medium' : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                    style={isActive ? { backgroundColor: ch.color + '12', color: ch.color } : {}}
-                  >
-                    <div className="relative flex-shrink-0">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ch.color }} />
-                      <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-white ${STATUS_DOT[ch.status]}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate font-medium">{ch.name}</p>
-                      <p className="text-xs text-gray-400 truncate">{ch.number}</p>
-                    </div>
-                    <div className="flex-shrink-0 flex items-center gap-1">
-                      {STATUS_ICON[ch.status]}
-                      <button
-                        onClick={e => { e.stopPropagation(); setDropdownOpen(false); onNavigate('chat', ch.id); }}
-                        className="p-1 text-gray-300 hover:text-primary-600 rounded transition-colors"
-                        title="Ver conversas"
-                      >
-                        <MessageCircle size={12} />
-                      </button>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* footer */}
-            <div className="border-t border-gray-100">
-              <button
-                onClick={() => { setDropdownOpen(false); onNavigate('channels'); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
-              >
-                <Smartphone size={13} />
-                <span>+ Conectar número</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* collapse toggle when collapsed */}
-      {collapsed && (
-        <button onClick={onToggle} className="p-2 mx-auto mt-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-          <ChevronRight size={16} />
-        </button>
       )}
-
-      {/* ── MAIN NAV ─────────────────────────────────────────────────────────── */}
-      <nav className="py-3 space-y-0.5 px-2 flex-1">
-        {NAV_ITEMS.map((item) => {
-          const active = current === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id, undefined)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                active ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              } ${collapsed ? 'justify-center' : ''}`}
-              title={collapsed ? item.label : undefined}
-            >
-              <span className={active ? 'text-primary-600' : 'text-gray-500'}>{item.icon}</span>
-              {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
-              {!collapsed && item.id === 'chat' && unreadCount > 0 && (
-                <span className="bg-primary-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* ── BOTTOM ───────────────────────────────────────────────────────────── */}
-      <div className="border-t border-gray-100 p-2 space-y-1 flex-shrink-0">
-        <button
-          onClick={() => onNavigate('settings')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors ${collapsed ? 'justify-center' : ''}`}
-          title={collapsed ? 'Configurações' : undefined}
-        >
-          <Settings size={20} className="text-gray-500" />
-          {!collapsed && <span>Configurações</span>}
-        </button>
-        <div className={`flex items-center gap-3 px-3 py-2.5 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold text-sm flex-shrink-0">
-            {userInitials}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-800 truncate">{userName}</p>
-              <p className="text-xs text-gray-500 truncate">Administrador</p>
-            </div>
-          )}
+      {!collapsed && (
+        <div className="min-w-0 animate-fade-in">
+          <span className="block truncate text-lg font-bold text-white tracking-tight">{businessName}</span>
+          <div className="truncate text-[10px] text-white/40 font-medium tracking-widest -mt-0.5">{subtitle}</div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* Nav Item */
+function NavItem({
+  item,
+  collapsed,
+  exact = false,
+}: {
+  item: { path: string; icon: React.ElementType; label: string };
+  collapsed: boolean;
+  exact?: boolean;
+}) {
+  const Icon = item.icon;
+  const location = useLocation();
+  const isActive = exact
+    ? location.pathname === item.path
+    : location.pathname.startsWith(item.path);
+
+  return (
+    <NavLink
+      to={item.path}
+      title={collapsed ? item.label : undefined}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+        transition-all duration-200 cursor-pointer relative group
+        ${isActive
+          ? 'bg-white/15 text-white shadow-sm'
+          : 'text-white/60 hover:text-white hover:bg-white/8'
+        }
+        ${collapsed ? 'justify-center' : ''}
+      `}
+    >
+      {isActive && (
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary-400 rounded-full" />
+      )}
+      <Icon size={17} className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-white/50 group-hover:text-white/80'}`} />
+      {!collapsed && <span>{item.label}</span>}
+      {/* Tooltip for collapsed */}
+      {collapsed && (
+        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-900 text-white text-xs rounded-lg
+          opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg
+          transition-opacity duration-150">
+          {item.label}
+        </div>
+      )}
+    </NavLink>
+  );
+}
+
+/* Sidebar */
+export default function Sidebar() {
+  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
+
+  return (
+    <aside
+      translate="no"
+      className={`notranslate relative flex flex-col h-screen flex-shrink-0 transition-all duration-300 ease-in-out
+        bg-gradient-nucleus border-r border-white/5 overflow-hidden`}
+      style={{ width: sidebarCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)' }}
+    >
+      {/* Mesh overlay */}
+      <div className="absolute inset-0 bg-mesh pointer-events-none opacity-40" />
+
+      {/* Content */}
+      <div className="relative flex flex-col h-full z-10">
+        {/* Logo */}
+        <div className="px-3 py-5 border-b border-white/8">
+          <NucleusLogo collapsed={sidebarCollapsed} />
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 overflow-y-auto no-scrollbar space-y-0.5">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label}>
+              {!sidebarCollapsed && (
+                <div className="sidebar-section-label">{section.label}</div>
+              )}
+              {sidebarCollapsed && <div className="h-3" />}
+              {section.items.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  collapsed={sidebarCollapsed}
+                  exact={'exact' in item && (item as any).exact}
+                />
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        {/* Collapse Toggle */}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="absolute -right-3.5 top-1/2 -translate-y-1/2 w-7 h-7 bg-slate-800 border border-white/10
+            rounded-full flex items-center justify-center text-white/60 hover:text-white
+            hover:bg-slate-700 transition-all duration-200 shadow-md z-20"
+          title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+        >
+          {sidebarCollapsed
+            ? <ChevronRight size={13} />
+            : <ChevronLeft size={13} />
+          }
+        </button>
       </div>
     </aside>
   );

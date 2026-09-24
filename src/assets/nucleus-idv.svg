@@ -1,0 +1,30 @@
+<svg width="720" height="560" viewBox="0 0 720 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="560" rx="44" fill="url(#bg)"/>
+  <g opacity="0.92">
+    <circle cx="360" cy="280" r="132" fill="#ECFDF5" fill-opacity="0.06"/>
+    <circle cx="360" cy="280" r="88" fill="#34D399" fill-opacity="0.1"/>
+    <circle cx="360" cy="280" r="46" fill="#D1FAE5" fill-opacity="0.96"/>
+    <path d="M360 218C394.242 218 422 245.758 422 280C422 314.242 394.242 342 360 342C325.758 342 298 314.242 298 280C298 245.758 325.758 218 360 218Z" stroke="#6EE7B7" stroke-width="2.5"/>
+    <path d="M221 280C259 216 323 184 389 198C455 212 500 268 504 336" stroke="#A7F3D0" stroke-opacity="0.72" stroke-width="3" stroke-linecap="round"/>
+    <path d="M499 280C461 344 397 376 331 362C265 348 220 292 216 224" stroke="#14B8A6" stroke-opacity="0.82" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="221" cy="280" r="8" fill="#34D399"/>
+    <circle cx="499" cy="280" r="8" fill="#5EEAD4"/>
+    <circle cx="389" cy="198" r="6" fill="#D1FAE5"/>
+    <circle cx="331" cy="362" r="6" fill="#99F6E4"/>
+  </g>
+  <g opacity="0.52">
+    <path d="M110 112H178" stroke="#ECFDF5" stroke-opacity="0.44" stroke-width="2" stroke-linecap="round"/>
+    <path d="M542 438H610" stroke="#ECFDF5" stroke-opacity="0.44" stroke-width="2" stroke-linecap="round"/>
+    <path d="M124 438H162" stroke="#34D399" stroke-opacity="0.62" stroke-width="2" stroke-linecap="round"/>
+    <path d="M558 112H596" stroke="#34D399" stroke-opacity="0.62" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="152" cy="142" r="4" fill="#6EE7B7"/>
+    <circle cx="574" cy="414" r="4" fill="#6EE7B7"/>
+  </g>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="46" x2="650" y2="528" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#022C22"/>
+      <stop offset="0.48" stop-color="#065F46"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+  </defs>
+</svg>

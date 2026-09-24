@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import { Plus, Copy, Edit2, Trash2, Search, FileText, X, Check, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
-import { templatesDb } from '../lib/db';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { useTemplates, useUpsertTemplate, useDeleteTemplate } from '../hooks/useTemplates';
+import { toast } from '../hooks/useToast';
 import type { MessageTemplate, TemplateCategory } from '../types';
 
 const CAT_LABELS: Record<TemplateCategory, string> = {
@@ -48,8 +48,10 @@ function highlightVars(text: string) {
 }
 
 export default function Templates() {
-  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: templates = [], isLoading: loading } = useTemplates();
+  const upsertTemplate = useUpsertTemplate();
+  const deleteTemplateMutation = useDeleteTemplate();
+
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState<TemplateCategory | 'all'>('all');
   const [showModal, setShowModal] = useState(false);
@@ -60,15 +62,6 @@ export default function Templates() {
   const [showVars, setShowVars] = useState(true);
   const [hoveredVar, setHoveredVar] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return; }
-    const data = await templatesDb.getAll();
-    setTemplates(data);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const filtered = templates.filter(t => {
     const matchSearch = t.name.toLowerCase().includes(search.toLowerCase()) || t.content.toLowerCase().includes(search.toLowerCase());
@@ -117,22 +110,22 @@ export default function Templates() {
     const variables = extractVars(form.content);
     if (editing) {
       const updated = { ...editing, ...form, variables };
-      setTemplates(prev => prev.map(t => t.id === editing.id ? updated : t));
-      if (isSupabaseConfigured) await templatesDb.upsert(updated);
+      await upsertTemplate.mutateAsync(updated);
+      toast.success('Template atualizado', form.name);
     } else {
       const nt: MessageTemplate = {
         id: `t${Date.now()}`, ...form, variables,
         usageCount: 0, createdAt: new Date().toISOString().split('T')[0],
       };
-      setTemplates(prev => [nt, ...prev]);
-      if (isSupabaseConfigured) await templatesDb.upsert(nt);
+      await upsertTemplate.mutateAsync(nt);
+      toast.success('Template criado', form.name);
     }
     setShowModal(false);
   };
 
   const deleteTemplate = async (id: string) => {
-    setTemplates(prev => prev.filter(t => t.id !== id));
-    if (isSupabaseConfigured) await templatesDb.delete(id);
+    await deleteTemplateMutation.mutateAsync(id);
+    toast.success('Template excluído');
   };
 
   const copyTemplate = (t: MessageTemplate) => {
@@ -324,8 +317,8 @@ export default function Templates() {
             </div>
             <div className="flex gap-3 p-5 border-t border-gray-100">
               <button onClick={() => setShowModal(false)} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition-colors">Cancelar</button>
-              <button onClick={save} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors">
-                {editing ? 'Salvar' : 'Criar Template'}
+              <button onClick={save} disabled={upsertTemplate.isPending} className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-60">
+                {upsertTemplate.isPending ? 'Salvando...' : editing ? 'Salvar' : 'Criar Template'}
               </button>
             </div>
           </div>
