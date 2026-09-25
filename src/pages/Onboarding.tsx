@@ -80,7 +80,7 @@ export default function Onboarding() {
         phone: form.phone.trim() || null,
         role: profile.role || 'admin',
         is_primary_professional: true,
-        status: 'active',
+        active: true,
       };
 
       const { error: clinicError } = await supabase.from('clinics').update(clinicPayload).eq('id', profile.clinic_id);
