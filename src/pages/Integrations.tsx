@@ -118,16 +118,6 @@ const CATALOG: CatalogItem[] = [
     ],
   },
   {
-    id: 'asaas',
-    name: 'PIX, cartão e boleto',
-    description: 'Receba pagamentos e acompanhe cobranças diretamente na Nucleus.',
-    category: 'Pagamentos',
-    icon: WalletCards,
-    connectionMode: 'managed',
-    actionLabel: 'Ativar pagamentos',
-    fields: [],
-  },
-  {
     id: 'google_calendar',
     name: 'Agenda Google e videochamada',
     description: 'Sincronize consultas e crie links de videochamada automaticamente.',

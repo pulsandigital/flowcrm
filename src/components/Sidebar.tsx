@@ -62,7 +62,6 @@ const NAV_SECTIONS = [
   {
     label: 'Nucleus Finance',
     items: [
-      { path: '/finance/bank-accounts', icon: Landmark, label: 'Contas bancárias' },
       { path: '/finance', icon: DollarSign, label: 'Financeiro' },
     ],
   },

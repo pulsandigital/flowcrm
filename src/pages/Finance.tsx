@@ -69,7 +69,7 @@ const BLANK = {
   receiptNotes: '',
 };
 
-type FinanceTab = 'bank_accounts' | 'receivable' | 'payable' | 'charges' | 'invoices' | 'receipts';
+type FinanceTab = 'charges' | 'invoices' | 'receipts';
 
 function TransactionForm({ initial, onSave, onClose, loading, error, isEdit, patients = [] }: any) {
   const [f, setF] = useState(initial);
@@ -360,32 +360,8 @@ export default function Finance() {
   const insertMut = useInsertTransaction();
   const updateMut = useUpdateTransaction();
   const deleteMut = useDeleteTransaction();
-  const routeTab: FinanceTab = location.pathname.includes('/bank-accounts')
-    ? 'bank_accounts'
-    : location.pathname.includes('/receivable')
-      ? 'receivable'
-      : location.pathname.includes('/payable')
-        ? 'payable'
-        : 'charges';
+  const routeTab: FinanceTab = 'charges';
   const [activeTab, setActiveTab] = useState<FinanceTab>(routeTab);
-  const [bankAccounts, setBankAccounts] = useState<any[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('nucleus_bank_accounts') || '[]');
-    } catch {
-      return [];
-    }
-  });
-  const [showBankForm, setShowBankForm] = useState(false);
-  const [bankForm, setBankForm] = useState({
-    bank: '461 - Asaas IP',
-    accountName: '',
-    holder: '',
-    agency: '',
-    accountNumber: '',
-    digit: '',
-    active: true,
-    notes: '',
-  });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [showForm, setShowForm] = useState(false);
@@ -415,15 +391,7 @@ export default function Finance() {
 
   const setFinanceTab = (tab: FinanceTab) => {
     setActiveTab(tab);
-    const pathByTab: Record<FinanceTab, string> = {
-      bank_accounts: '/finance/bank-accounts',
-      receivable: '/finance/receivable',
-      payable: '/finance/payable',
-      charges: '/finance',
-      invoices: '/finance',
-      receipts: '/finance',
-    };
-    navigate(pathByTab[tab]);
+    navigate('/finance');
   };
 
   const saveBankAccount = () => {
@@ -535,9 +503,6 @@ export default function Finance() {
   };
 
   const tabs = [
-    { id: 'bank_accounts' as const, label: 'Contas bancárias', icon: Landmark, count: bankAccounts.length },
-    { id: 'receivable' as const, label: 'Contas a receber', icon: ArrowDownCircle, count: receitas.filter((t: any) => t.type === 'receita').length },
-    { id: 'payable' as const, label: 'Contas a pagar', icon: ArrowUpCircle, count: transactions.filter((t: any) => t.type === 'despesa').length },
     { id: 'charges' as const, label: 'Cobranças', icon: DollarSign, count: transactions.length },
     { id: 'invoices' as const, label: 'Emissão de NF', icon: FileText, count: receitas.filter((t: any) => t.issueInvoice).length },
     { id: 'receipts' as const, label: 'Comprovantes', icon: Receipt, count: receitas.filter((t: any) => t.issueReceipt).length },
@@ -581,153 +546,6 @@ export default function Finance() {
           </button>
         ))}
       </div>
-
-      {activeTab === 'bank_accounts' && (
-        <div className="space-y-5">
-          <div className="card overflow-hidden">
-            <div className="grid gap-6 bg-gradient-to-r from-teal-800 to-cyan-800 p-6 text-white lg:grid-cols-[320px_1fr]">
-              <div className="rounded-3xl bg-white/10 p-5">
-                <div className="mb-5 flex h-56 items-center justify-center rounded-2xl bg-cyan-200/20 text-center">
-                  <div>
-                    <CreditCard size={52} className="mx-auto mb-3 text-cyan-100" />
-                    <div className="text-sm font-semibold">PIX, cartão e boleto</div>
-                    <div className="mt-1 text-xs text-cyan-100/80">Recebimento conectado ao Asaas</div>
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-cyan-300/25 p-4">
-                  <div className="font-semibold">Taxas de antecipação de cartão</div>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                    <div><span className="block text-cyan-100">À vista</span><strong className="text-xl">1,25%</strong> ao mês</div>
-                    <div><span className="block text-cyan-100">Parcelado</span><strong className="text-xl">1,70%</strong> ao mês</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-center">
-                <h2 className="text-2xl font-bold text-cyan-200">Receba seus pagamentos de forma simples, rápida e segura!</h2>
-                <p className="mt-5 max-w-3xl text-sm leading-relaxed text-white/90">
-                  Com a integração do Nucleus com o Asaas, você pode cadastrar sua conta bancária on-line e enviar cobranças diretamente para seus pacientes.
-                </p>
-                <div className="mt-6 space-y-3 text-sm font-semibold">
-                  <div className="flex items-center gap-3"><CheckCircle2 size={18} className="text-cyan-200" /> Enviar links de pagamento para pacientes</div>
-                  <div className="flex items-center gap-3"><CheckCircle2 size={18} className="text-cyan-200" /> Receber valores de forma automática e segura</div>
-                  <div className="flex items-center gap-3"><CheckCircle2 size={18} className="text-cyan-200" /> Conciliar PIX, cartão, boleto e comprovantes</div>
-                </div>
-                <div className="mt-6 grid gap-3 border-t border-white/20 pt-5 text-sm sm:grid-cols-2">
-                  <div><strong>PIX:</strong> R$ 1,99 por cobrança recebida</div>
-                  <div><strong>Boleto:</strong> R$ 1,99 por cobrança recebida</div>
-                  <div><strong>Cartão:</strong> 2,99% + R$ 0,29 à vista</div>
-                  <div><strong>Parcelado:</strong> até 4,89% + R$ 0,29</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button className="btn-primary" type="button" onClick={() => setShowBankForm(true)}>
-              <Landmark size={16} />
-              Criar conta Asaas
-            </button>
-            <button className="btn-secondary" type="button">
-              <HelpCircle size={16} />
-              Como usar a conta Asaas
-            </button>
-            <button className="btn-secondary" type="button" onClick={() => setShowBankForm(true)}>
-              <Plus size={16} />
-              Incluir outra conta
-            </button>
-          </div>
-
-          {showBankForm && (
-            <div className="card p-5">
-              <div className="mb-4 flex items-center gap-2">
-                <Landmark size={18} className="text-primary-600" />
-                <h2 className="section-title">Cadastrar conta bancária</h2>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <select className="input" value={bankForm.bank} onChange={e => setBankForm(prev => ({ ...prev, bank: e.target.value }))}>
-                  <option>461 - Asaas IP</option>
-                  <option>001 - Banco do Brasil</option>
-                  <option>033 - Santander</option>
-                  <option>104 - Caixa Econômica Federal</option>
-                  <option>237 - Bradesco</option>
-                  <option>341 - Itau</option>
-                  <option>260 - Nu Pagamentos</option>
-                  <option>336 - C6 Bank</option>
-                </select>
-                <input className="input" value={bankForm.accountName} onChange={e => setBankForm(prev => ({ ...prev, accountName: e.target.value }))} placeholder="Nome da conta" />
-                <input className="input" value={bankForm.holder} onChange={e => setBankForm(prev => ({ ...prev, holder: e.target.value }))} placeholder="Titular" />
-                <div className="grid grid-cols-3 gap-3">
-                  <input className="input" value={bankForm.agency} onChange={e => setBankForm(prev => ({ ...prev, agency: e.target.value }))} placeholder="Agência" />
-                  <input className="input" value={bankForm.accountNumber} onChange={e => setBankForm(prev => ({ ...prev, accountNumber: e.target.value }))} placeholder="Número da conta" />
-                  <input className="input" value={bankForm.digit} onChange={e => setBankForm(prev => ({ ...prev, digit: e.target.value }))} placeholder="Dígito" />
-                </div>
-                <textarea className="input resize-none lg:col-span-2" rows={3} value={bankForm.notes} onChange={e => setBankForm(prev => ({ ...prev, notes: e.target.value }))} placeholder="Observação" />
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={bankForm.active} onChange={e => setBankForm(prev => ({ ...prev, active: e.target.checked }))} />
-                  Conta ativa
-                </label>
-                <button className="btn-primary" type="button" onClick={saveBankAccount} disabled={!bankForm.accountName.trim() || !bankForm.holder.trim()}>
-                  <Save size={16} />
-                  Salvar
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="card overflow-hidden">
-            <table className="w-full">
-              <thead className="border-b border-slate-100 bg-slate-50/70">
-                <tr>{['Titular', 'Nome da conta', 'Banco', 'Dados da conta', 'Status'].map(h => <th key={h} className="table-head px-4 py-3 text-left">{h}</th>)}</tr>
-              </thead>
-              <tbody>
-                {(bankAccounts.length ? bankAccounts : [{
-                  id: 'demo-asaas-account',
-                  holder: 'Conta Asaas do profissional',
-                  accountName: 'Conta Asaas - Nucleus',
-                  bank: '461 - Asaas IP',
-                  agency: '0001',
-                  accountNumber: '0000000',
-                  digit: '0',
-                  active: true,
-                }]).map((account: any) => (
-                  <tr key={account.id} className="table-row">
-                    <td className="table-cell font-semibold text-slate-900">{account.holder}</td>
-                    <td className="table-cell">{account.accountName}</td>
-                    <td className="table-cell">{account.bank}</td>
-                    <td className="table-cell">{account.agency || '----'} - {account.accountNumber || '----'}-{account.digit || '-'}</td>
-                    <td className="table-cell"><span className={account.active ? 'badge badge-green' : 'badge badge-gray'}>{account.active ? 'Ativa' : 'Inativa'}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'receivable' && (
-        <FinanceLedger
-          title="Contas a receber"
-          description="Valores que devem entrar na clínica ou para o profissional."
-          items={receitas}
-          fmt={fmt}
-          empty="Nenhuma conta a receber cadastrada."
-          onNew={() => { setShowForm(true); setFormError(''); }}
-        />
-      )}
-
-      {activeTab === 'payable' && (
-        <FinanceLedger
-          title="Contas a pagar"
-          description="Despesas, fornecedores e pagamentos programados."
-          items={transactions.filter((t: any) => t.type === 'despesa')}
-          fmt={fmt}
-          empty="Nenhuma conta a pagar cadastrada."
-          onNew={() => { setShowForm(true); setFormError(''); }}
-        />
-      )}
 
       {activeTab === 'charges' && (
         <>
