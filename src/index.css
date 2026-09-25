@@ -237,6 +237,29 @@
 }
 
 @layer utilities {
+  /* ── Login aside background ── */
+  .bg-gradient-nucleus {
+    background-image: linear-gradient(135deg, #022c22 0%, #065f46 52%, #047857 100%);
+  }
+  .bg-gradient-blue {
+    background-image: linear-gradient(135deg, #059669 0%, #047857 100%);
+  }
+  .bg-mesh {
+    background-image:
+      radial-gradient(circle at 30% 70%, rgba(16,185,129,0.15) 0%, transparent 50%),
+      radial-gradient(circle at 70% 20%, rgba(5,150,105,0.10) 0%, transparent 50%);
+  }
+  .shadow-glow {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
   /* ── Gradient Text ── */
   .text-gradient-nucleus {
     @apply bg-gradient-to-r from-primary-600 to-nucleus-500 bg-clip-text text-transparent;
