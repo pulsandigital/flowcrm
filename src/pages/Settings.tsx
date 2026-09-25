@@ -5,10 +5,13 @@ import {
   Trash2, Edit3, Shield, Bell, Palette, Globe, Key, Mail,
   Instagram, Phone, ToggleLeft, ToggleRight, ExternalLink,
   UserRound, Building2, Briefcase, Stethoscope, CalendarClock,
+  Loader2, Save,
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getBrandSettings, saveBrandSettings, type BrandSettings } from '../lib/branding';
 import { applyCustomPrimaryColor } from '../lib/theme';
+import { useCurrentProfile } from '../hooks/useCurrentProfile';
+import { useQueryClient } from '@tanstack/react-query';
 
 type SettingsTab = 'hub' | 'profile' | 'integrations' | 'users' | 'professionals' | 'services' | 'templates' | 'preconsultations' | 'tools' | 'privacy' | 'general';
 
@@ -396,35 +399,106 @@ function SettingsHub({ onSelect }: { onSelect: (tab: SettingsTab) => void }) {
 }
 
 function ProfileSettings() {
+  const { data: profile, isLoading } = useCurrentProfile();
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    full_name: '',
+    phone: '',
+    specialty: '',
+    crm: '',
+    rqe: '',
+    council_state: '',
+  });
+
+  useEffect(() => {
+    if (!profile) return;
+    setForm({
+      full_name: profile.full_name || '',
+      phone: (profile as any).phone || '',
+      specialty: profile.specialty || '',
+      crm: profile.crm || '',
+      rqe: profile.rqe || '',
+      council_state: profile.council_state || '',
+    });
+  }, [profile]);
+
+  const handleSave = async () => {
+    if (!profile) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { error: err } = await supabase
+        .from('profiles')
+        .update({
+          full_name: form.full_name.trim(),
+          phone: form.phone.trim() || null,
+          specialty: form.specialty.trim() || null,
+          crm: form.crm.trim() || null,
+          rqe: form.rqe.trim() || null,
+          council_state: form.council_state.trim().toUpperCase() || null,
+        })
+        .eq('id', profile.id);
+      if (err) throw err;
+      await queryClient.invalidateQueries({ queryKey: ['current-profile'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) {
+      setError(e.message || 'Erro ao salvar perfil.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="card p-5 flex items-center justify-center h-40">
+        <Loader2 size={22} className="animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="card p-5">
       <h2 className="section-title mb-4">Meu perfil</h2>
+      {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <input className="input" placeholder="Nome completo" />
-        <input className="input" placeholder="CPF" />
-        <input className="input" placeholder="Telefone / WhatsApp" />
-        <input className="input" placeholder="E-mail" />
-        <select className="input" defaultValue="">
-          <option value="" disabled>Conselho regional</option>
-          <option>CRM - Medicina</option>
-          <option>CRP - Psicologia</option>
-          <option>CRN - Nutricao</option>
-          <option>CREFITO - Fisioterapia</option>
-          <option>CRO - Odontologia</option>
-        </select>
-        <input className="input" placeholder="Numero do conselho" />
-        <input className="input" placeholder="UF do conselho" />
-        <input className="input" placeholder="Especialidade" />
-        <input className="input" placeholder="RQE" />
+        <div className="xl:col-span-2">
+          <label className="label">Nome completo</label>
+          <input className="input" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Nome completo" />
+        </div>
+        <div>
+          <label className="label">E-mail</label>
+          <input className="input bg-slate-50" value={profile?.email || ''} disabled placeholder="E-mail" />
+        </div>
+        <div>
+          <label className="label">Telefone / WhatsApp</label>
+          <input className="input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(00) 00000-0000" />
+        </div>
+        <div>
+          <label className="label">Especialidade</label>
+          <input className="input" value={form.specialty} onChange={e => setForm(f => ({ ...f, specialty: e.target.value }))} placeholder="Ex: Ginecologia" />
+        </div>
+        <div>
+          <label className="label">CRM / Conselho</label>
+          <input className="input" value={form.crm} onChange={e => setForm(f => ({ ...f, crm: e.target.value }))} placeholder="Ex: CRM 123456" />
+        </div>
+        <div>
+          <label className="label">RQE</label>
+          <input className="input" value={form.rqe} onChange={e => setForm(f => ({ ...f, rqe: e.target.value }))} placeholder="Ex: RQE 12345" />
+        </div>
+        <div>
+          <label className="label">UF do conselho</label>
+          <input className="input" value={form.council_state} onChange={e => setForm(f => ({ ...f, council_state: e.target.value }))} placeholder="Ex: SP" maxLength={2} />
+        </div>
       </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <input className="input" placeholder="CEP" />
-        <input className="input" placeholder="Endereco profissional" />
-        <input className="input" placeholder="Cidade / UF" />
-        <input className="input" placeholder="Foto profissional / URL" />
-      </div>
-      <div className="mt-5 flex justify-end">
-        <button className="btn-primary" type="button">Salvar perfil</button>
+      <div className="mt-5 flex items-center justify-end gap-3">
+        {saved && <span className="text-sm text-emerald-600 font-medium">Salvo com sucesso!</span>}
+        <button className="btn-primary" type="button" onClick={handleSave} disabled={saving}>
+          {saving ? <><Loader2 size={14} className="animate-spin" /> Salvando...</> : <><Save size={14} /> Salvar perfil</>}
+        </button>
       </div>
     </div>
   );

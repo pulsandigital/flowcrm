@@ -31,7 +31,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import {
   Bell, Search, LogOut, Lock, Eye, EyeOff, Zap, HelpCircle, Plug, Shield, UserRound, Users, Moon, Sun,
-  Building2, BadgeCheck, Settings as SettingsIcon, LifeBuoy, Share2, FileText, ScrollText
+  Building2, BadgeCheck, Settings as SettingsIcon, FileText, ScrollText
 } from 'lucide-react';
 
 /* Lazy-loaded pages for new modules */
@@ -539,17 +539,8 @@ function ProfessionalAppLayout({ onLogout }: { onLogout: () => void }) {
                       <button onClick={() => goMenu('/settings?tab=general')} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50">
                         <Building2 size={18} /> Minha instituição
                       </button>
-                      <button onClick={() => goMenu('/settings?tab=general')} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50">
-                        <BadgeCheck size={18} /> Meu plano
-                      </button>
                       <button onClick={() => goMenu('/settings')} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50">
                         <SettingsIcon size={18} /> Configurações
-                      </button>
-                      <button onClick={() => goMenu('/help')} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-cyan-600 hover:bg-cyan-50">
-                        <LifeBuoy size={18} /> Ajuda e suporte
-                      </button>
-                      <button onClick={() => goMenu('/settings?tab=integrations')} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50">
-                        <Share2 size={18} /> Recomendar o sistema
                       </button>
 
                       <div className="pt-4 text-sm font-bold text-teal-700">Info. da versão</div>
